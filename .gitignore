@@ -1,0 +1,11 @@
+# Backend infrastructure (contains secrets: Firebase service-account key, etc.)
+# Keep this OUT of the public repo. Track it separately in a PRIVATE repo if needed.
+cloud/
+
+# Common secret / credential files (belt-and-suspenders for a public, auto-pushed repo)
+*.pem
+*.key
+*serviceaccount*.json
+*adminsdk*.json
+.env
+.env.*
