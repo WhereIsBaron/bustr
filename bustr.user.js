@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BUSTR: Jail Bust Assistant + PDA (Baron)
 // @namespace    http://torn.city.com.dot.com.com
-// @version      2.12.6
+// @version      2.13.0
 // @description  Shows your success odds on every jailed target, and how many busts you can make before failure gets likely
 // @author       Adobi & Ironhydedragon
 // @author       The_Baron [1467784] - added bust success % prediction, penalty weighting fitted to real outcomes, self-calibration from logged outcomes, a full settings panel, and reliability/storage hardening
@@ -11,6 +11,11 @@
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_deleteValue
+// @grant        GM_xmlhttpRequest
+// @connect      bustr-jail-bust-assistant.netlify.app
+// @connect      identitytoolkit.googleapis.com
+// @connect      securetoken.googleapis.com
+// @connect      firestore.googleapis.com
 // ==/UserScript==
 
 // Security/reliability-hardened build. See CHANGELOG.md for full version history.
@@ -37,7 +42,7 @@
   ////////////////////////////////////////////////////////////////////////////
 
   const DEBUG = false; // set true while debugging to re-enable console logs
-  const SCRIPT_VERSION = '2.12.6'; // keep in sync with the @version header above - stamped into diagnostic exports
+  const SCRIPT_VERSION = '2.13.0'; // keep in sync with the @version header above - stamped into diagnostic exports
 
   // Penalty model. Matches the documented in-game mechanic: each bust adds a
   // penalty that decays hyperbolically as P0 / (1 + c*t), losing half at 10h and
@@ -236,6 +241,14 @@
   const API_KEY_NAME = 'bustrApiKey';
   const LEGACY_API_KEY_NAME = 'bustrApiKey'; // same name, but in localStorage pre-v2
 
+  // --- Cloud sync (optional, off by default). These three values are public by
+  // design and safe to ship in the script; the only real secret (the Firebase
+  // service account) lives server-side in the Netlify function, never here. ---
+  const CLOUD_FUNCTION_URL = 'https://bustr-jail-bust-assistant.netlify.app/.netlify/functions/bustr-auth';
+  const CLOUD_FIREBASE_API_KEY = 'AIzaSyCw5UQGI-N1pEJZ7xg3OvO_elaTLQfeDYg';
+  const CLOUD_PROJECT_ID = 'bustr---jail-bust-assistant';
+  const CLOUD_AUTH_KEY = 'bustrCloudAuth'; // kept OUT of state so it never lands in a debug export
+
   const log = (...args) => { if (DEBUG) console.log('[BUSTR]', ...args); };
 
   log('BUSTR v2 loaded');
@@ -344,6 +357,7 @@
         playStyle: 'safety',           // 'safety' | 'maxcount' (display-only thresholds, see PLAYSTYLE_* constants)
         activeScope: 'always',         // 'always' | 'jailOnly' - suppresses nav badge/colours + background fetch off the jail page
         usePerkCalibration: false,     // off by default (baseline 1.0); opt in to apply the perk-derived estimate
+        cloudSyncEnabled: false,       // off by default; opt-in cloud backup of outcomeLog, gated behind an explicit consent prompt (see CloudSync)
       },
       penaltyScore: 0,
       penaltyThreshold: 0,
