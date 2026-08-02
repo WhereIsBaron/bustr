@@ -6,6 +6,29 @@ contribution branch, proposed by The_Baron [1467784].
 
 ---
 
+## v2.13.0
+- [NEW] Optional cloud sync for your bust history - opt-in, default OFF.
+  Turn it on in Settings and your outcome log is backed up to a database
+  and merged across your devices, keyed to your verified Torn ID, so your
+  history and self-calibration follow you between desktop installs. It
+  never performs a game action - it only stores the numbers BUSTR already
+  logs - so the read-only compliance stance is unchanged.
+- [PRIVACY] Only bust stats are stored (hardness, penalty, outcome,
+  timestamp). Your API key is never uploaded and never leaves the device;
+  it is used once to verify your Torn ID, via a server function that
+  mints a scoped access token. Each user can only ever read their own
+  data (enforced server-side). Enabling shows an explicit consent prompt
+  first; turning it off deletes your cloud copy. Aggregate stats help
+  improve the model.
+- [NOTE] Desktop only for now. Sync uses the userscript manager's
+  cross-origin request permission (GM_xmlhttpRequest) to satisfy Torn's
+  content-security policy; on PDA/mobile shims that lack it, the whole
+  section is simply inactive. Everything else in BUSTR works there as
+  before.
+- [INTERNAL] The auth session (refresh token, uid) is stored separately
+  from BUSTR's normal state, so it can never appear in a debug export.
+  The debug export continues to exclude your API key.
+
 ## v2.12.6
 - [FIX] On mobile, the "?" help pop-ups could not be read in full - the
   description docked to the bottom of the screen, where the mobile

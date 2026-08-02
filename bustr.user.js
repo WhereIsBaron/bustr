@@ -1059,10 +1059,194 @@
 
     const fittedCalibration = computeSelfCalibration(outcomeLog);
     setGlobalBustrState({ outcomeLog, selfCalibrationValue: fittedCalibration });
+    CloudSync.pushSoon(); // opt-in cloud backup; no-op unless enabled + signed in (see CloudSync)
 
     const outcomeLabel = success ? 'success' : (jailed ? 'failure (jailed)' : 'failure (clean)');
     console.log(`[BUSTR] Self-calibration: logged ${outcomeLabel} (hardness ${attempt.hardness}, predicted ${attempt.predictedChance}%) - ${outcomeLog.length} sample(s) recorded.`);
   }
+
+  ////////////////////////////////////////////////////////////////////////////
+  ////  CLOUD SYNC (opt-in, default OFF - see COMPLIANCE NOTE, this only stores data)
+  ////////////////////////////////////////////////////////////////////////////
+  // Backs up state.outcomeLog to Firestore, keyed to the player's verified Torn id, so
+  // bust history follows them across devices. Read-only assistant still: this only ever
+  // stores/reads its own logged numbers, never performs a game action.
+  //
+  // Desktop only for v1: every call goes through GM_xmlhttpRequest to sidestep
+  // torn.com's connect-src CSP (plain fetch to these hosts is blocked on-page). That
+  // grant is absent on some PDA shims, so the whole feature no-ops cleanly there.
+  //
+  // The API key is sent once, to the verification function, and is never stored in the
+  // cloud. The auth SESSION (refresh token, uid, playerId) lives under CLOUD_AUTH_KEY
+  // via Store, deliberately OUT of GLOBAL_BUSTR_STATE so it can never reach the debug
+  // export (which only serialises state).
+
+  const hasGMXhr = typeof GM_xmlhttpRequest !== 'undefined';
+
+  function gmRequest(method, url, { headers = {}, body = null } = {}) {
+    return new Promise((resolve, reject) => {
+      if (!hasGMXhr) { reject(new Error('cloud sync needs a desktop userscript manager')); return; }
+      GM_xmlhttpRequest({
+        method, url, headers, data: body, timeout: 20000,
+        onload: (r) => resolve({ status: r.status, text: r.responseText }),
+        onerror: () => reject(new Error('network error')),
+        ontimeout: () => reject(new Error('request timed out')),
+      });
+    });
+  }
+
+  // Firestore REST typed-value (de)serialisation. Firestore's REST API wraps every
+  // value in a type tag ({ integerValue: "3" } etc.), so these convert to and from it.
+  function toFsValue(v) {
+    if (v === null || v === undefined) return { nullValue: null };
+    if (typeof v === 'boolean') return { booleanValue: v };
+    if (typeof v === 'number') return Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v };
+    if (typeof v === 'string') return { stringValue: v };
+    if (Array.isArray(v)) return { arrayValue: { values: v.map(toFsValue) } };
+    if (typeof v === 'object') {
+      const fields = {};
+      for (const k of Object.keys(v)) fields[k] = toFsValue(v[k]);
+      return { mapValue: { fields } };
+    }
+    return { stringValue: String(v) };
+  }
+  function fromFsValue(val) {
+    if (!val || typeof val !== 'object') return undefined;
+    if ('nullValue' in val) return null;
+    if ('booleanValue' in val) return val.booleanValue;
+    if ('integerValue' in val) return Number(val.integerValue);
+    if ('doubleValue' in val) return Number(val.doubleValue);
+    if ('stringValue' in val) return val.stringValue;
+    if ('arrayValue' in val) return ((val.arrayValue && val.arrayValue.values) || []).map(fromFsValue);
+    if ('mapValue' in val) {
+      const out = {};
+      const f = (val.mapValue && val.mapValue.fields) || {};
+      for (const k of Object.keys(f)) out[k] = fromFsValue(f[k]);
+      return out;
+    }
+    return undefined;
+  }
+
+  const CloudSync = (() => {
+    let idToken = null;      // short-lived Firebase ID token, in memory only
+    let idTokenExpiry = 0;
+    let auth = null;         // { refreshToken, uid, playerId } - persisted under CLOUD_AUTH_KEY
+    let pushTimer = null;
+    let busy = false;
+
+    const loadAuth = () => (auth = auth || Store.get(CLOUD_AUTH_KEY) || null);
+    const saveAuth = (a) => { auth = a; if (a) Store.set(CLOUD_AUTH_KEY, a); else Store.remove(CLOUD_AUTH_KEY); };
+    const docUrl = (uid) => `https://firestore.googleapis.com/v1/projects/${CLOUD_PROJECT_ID}/databases/(default)/documents/busts/${uid}`;
+
+    // Exchange the Torn key for a verified identity (our function) then a Firebase
+    // session. The key touches only the verification call and is never persisted here.
+    async function signIn(apiKey) {
+      const r1 = await gmRequest('POST', CLOUD_FUNCTION_URL, {
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apiKey }),
+      });
+      const d1 = JSON.parse(r1.text || '{}');
+      if (r1.status !== 200) throw new Error(d1.error || ('auth failed (' + r1.status + ')'));
+      const r2 = await gmRequest('POST',
+        `https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=${CLOUD_FIREBASE_API_KEY}`,
+        { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: d1.token, returnSecureToken: true }) });
+      const d2 = JSON.parse(r2.text || '{}');
+      if (r2.status !== 200) throw new Error((d2.error && d2.error.message) || 'firebase sign-in failed');
+      idToken = d2.idToken;
+      idTokenExpiry = Date.now() + (Number(d2.expiresIn || 3600) - 60) * 1000;
+      saveAuth({ refreshToken: d2.refreshToken, uid: d1.uid, playerId: d1.playerId });
+      return auth;
+    }
+    async function refresh() {
+      const a = loadAuth();
+      if (!a || !a.refreshToken) throw new Error('not signed in');
+      const r = await gmRequest('POST',
+        `https://securetoken.googleapis.com/v1/token?key=${CLOUD_FIREBASE_API_KEY}`,
+        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: 'grant_type=refresh_token&refresh_token=' + encodeURIComponent(a.refreshToken) });
+      const d = JSON.parse(r.text || '{}');
+      if (r.status !== 200) throw new Error((d.error && d.error.message) || 'token refresh failed');
+      idToken = d.id_token;
+      idTokenExpiry = Date.now() + (Number(d.expires_in || 3600) - 60) * 1000;
+      if (d.refresh_token) saveAuth({ ...a, refreshToken: d.refresh_token });
+    }
+    async function ensureToken() {
+      if (idToken && Date.now() < idTokenExpiry) return idToken;
+      await refresh();
+      return idToken;
+    }
+    async function fsGet(uid) {
+      const t = await ensureToken();
+      const r = await gmRequest('GET', docUrl(uid), { headers: { Authorization: 'Bearer ' + t } });
+      if (r.status === 404) return null;
+      if (r.status !== 200) throw new Error('read failed (' + r.status + ')');
+      const fields = (JSON.parse(r.text || '{}').fields) || {};
+      return fields.log ? fromFsValue(fields.log) : [];
+    }
+    async function fsPatch(uid, logArr) {
+      const t = await ensureToken();
+      const body = JSON.stringify({ fields: { log: toFsValue(logArr), updatedAt: toFsValue(Date.now()) } });
+      const r = await gmRequest('PATCH',
+        docUrl(uid) + '?updateMask.fieldPaths=log&updateMask.fieldPaths=updatedAt',
+        { headers: { Authorization: 'Bearer ' + t, 'Content-Type': 'application/json' }, body });
+      if (r.status !== 200) throw new Error('write failed (' + r.status + ')');
+    }
+    async function fsDelete(uid) {
+      const t = await ensureToken();
+      const r = await gmRequest('DELETE', docUrl(uid), { headers: { Authorization: 'Bearer ' + t } });
+      if (r.status !== 200 && r.status !== 404) throw new Error('delete failed (' + r.status + ')');
+    }
+    // Union by timestamp, sorted, capped - so two devices converge to the same log.
+    function mergeLogs(a, b) {
+      const seen = new Map();
+      for (const o of [...(a || []), ...(b || [])]) if (o && typeof o.ts === 'number') seen.set(o.ts, o);
+      const out = [...seen.values()].sort((x, y) => x.ts - y.ts);
+      while (out.length > OUTCOME_LOG_MAX) out.shift();
+      return out;
+    }
+    const enabled = () => !!getUserSettings().cloudSyncEnabled;
+    const signedIn = () => { const a = loadAuth(); return !!(a && a.refreshToken); };
+
+    async function pullMerge() {
+      const a = loadAuth(); if (!a) return;
+      const cloud = await fsGet(a.uid);
+      const localLog = getGlobalBustrState().outcomeLog || [];
+      const merged = mergeLogs(localLog, cloud || []);
+      if (merged.length !== localLog.length) {
+        setGlobalBustrState({ outcomeLog: merged, selfCalibrationValue: computeSelfCalibration(merged) });
+      }
+      await fsPatch(a.uid, merged);
+    }
+    async function push() { const a = loadAuth(); if (a) await fsPatch(a.uid, getGlobalBustrState().outcomeLog || []); }
+    function pushSoon() {
+      if (!enabled() || !signedIn()) return;
+      if (pushTimer) clearTimeout(pushTimer);
+      pushTimer = setTimeout(() => push().catch((e) => log('cloud push failed', e)), 4000);
+    }
+    function initFromLoad() {
+      if (!enabled() || !signedIn() || !hasGMXhr) return;
+      pullMerge().catch((e) => log('cloud pull failed', e));
+    }
+    async function enable() {
+      const apiKey = getApiKey();
+      if (!apiKey) throw new Error('Save your API key first, then enable sync.');
+      if (busy) return;
+      busy = true;
+      try {
+        if (!signedIn()) await signIn(apiKey);
+        setUserSettings({ ...getUserSettings(), cloudSyncEnabled: true });
+        await pullMerge();
+      } finally { busy = false; }
+    }
+    async function disableAndDelete() {
+      setUserSettings({ ...getUserSettings(), cloudSyncEnabled: false });
+      const a = loadAuth();
+      try { if (a) await fsDelete(a.uid); } finally { saveAuth(null); idToken = null; idTokenExpiry = 0; }
+    }
+    return {
+      enable, disableAndDelete, initFromLoad, pushSoon, pullMerge, signedIn, enabled,
+      get playerId() { const a = loadAuth(); return a ? a.playerId : null; },
+    };
+  })();
 
   ////////////////////////////////////////////////////////////////////////////
   ////  NETWORK
@@ -1596,6 +1780,22 @@ body.bustr-no-success .bustr-success-chance {display: none;}
   position: fixed; inset: 0; z-index: 99999; background: rgba(0,0,0,0.45); display: none;
 }
 #bustr-settings-backdrop.bustr-open {display: block;}
+/* Cloud-sync consent modal. Above the settings panel; centred; the only way past it
+   is Cancel or Enable, so nothing signs in without a deliberate choice. */
+.bustr-consent-backdrop {
+  position: fixed; inset: 0; z-index: 100002; background: rgba(0,0,0,0.6);
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+}
+.bustr-consent-card {
+  max-width: 340px; background: #2b2b2b; color: #ddd; border: 1px solid #111;
+  border-radius: 8px; box-shadow: 0 10px 32px rgba(0,0,0,0.7); padding: 16px 18px;
+  font-size: 12px; line-height: 1.5;
+}
+.bustr-consent-card h3 {margin: 0 0 8px; font-size: 14px; color: #8ca05a;}
+.bustr-consent-card p {margin: 0 0 14px;}
+.bustr-consent-actions {display: flex; gap: 8px; justify-content: flex-end;}
+.bustr-consent-actions .bustr-btn {flex: 0 0 auto;}
+#bustr-consent-ok {background: rgba(140, 168, 90, 0.35);}
 /* API failure notice. Deliberately loud: the alternative symptom is a penalty of
    0%, which reads as "clear to bust" when the truth is "unknown". */
 .bustr-apierror {
@@ -2442,7 +2642,46 @@ body.bustr-no-success .bustr-success-chance {display: none;}
     byId('bustr-set-playstyle').value = us.playStyle === 'maxcount' ? 'maxcount' : 'safety';
     byId('bustr-set-scope').value = us.activeScope === 'jailOnly' ? 'jailOnly' : 'always';
     byId('bustr-set-useperkcal').checked = us.usePerkCalibration === true;
+    const cloudBox = byId('bustr-set-cloudsync');
+    if (cloudBox) cloudBox.checked = us.cloudSyncEnabled === true && CloudSync.signedIn();
+    refreshCloudStatus();
     refreshPerkImpactDisplay();
+  }
+
+  // One-line cloud status for the panel: unavailable / off / synced / error.
+  function refreshCloudStatus(msg) {
+    const el = document.getElementById('bustr-cloud-status');
+    if (!el) return;
+    if (typeof msg === 'string') { el.textContent = msg; return; }
+    if (!hasGMXhr) { el.textContent = 'Unavailable here - cloud sync needs a desktop userscript manager.'; return; }
+    if (CloudSync.enabled() && CloudSync.signedIn()) {
+      el.textContent = 'On - synced as player ' + (CloudSync.playerId || '?') + '.';
+    } else {
+      el.textContent = 'Off. Your bust history stays only on this device.';
+    }
+  }
+
+  // Explicit consent before the first cloud enable. Returns a Promise<boolean>:
+  // resolves true only on "Enable sync". Nothing signs in or uploads until this does.
+  function showCloudConsent() {
+    return new Promise((resolve) => {
+      const back = document.createElement('div');
+      back.className = 'bustr-consent-backdrop';
+      back.innerHTML = `
+        <div class="bustr-consent-card">
+          <h3>Enable cloud sync?</h3>
+          <p>Backs up your bust history across devices. Only bust stats are saved (never your API key or personal info), tied to your Torn ID, and deleted when you switch it off. Aggregate stats help improve BUSTR.</p>
+          <div class="bustr-consent-actions">
+            <button type="button" class="bustr-btn" id="bustr-consent-cancel">Cancel</button>
+            <button type="button" class="bustr-btn" id="bustr-consent-ok">Enable sync</button>
+          </div>
+        </div>`;
+      const done = (val) => { try { back.remove(); } catch (e) {} resolve(val); };
+      back.addEventListener('click', (e) => { if (e.target === back) done(false); });
+      document.body.appendChild(back);
+      back.querySelector('#bustr-consent-cancel').addEventListener('click', () => done(false));
+      back.querySelector('#bustr-consent-ok').addEventListener('click', () => done(true));
+    });
   }
 
   function ensureSettingsUi() {
@@ -2689,6 +2928,7 @@ body.bustr-no-success .bustr-success-chance {display: none;}
     playstyle: ['Play style', 'Changes when the colours flip, not the numbers underneath. Safety uses your thresholds as set. Max count shifts the bands so you spend longer in the orange zone, which raises daily bust volume at the cost of more failures and more jail time. Nothing is ever busted for you either way.'],
     exportHelp: ['Debug export', 'Copies a snapshot for the script maintainer to debug with: your level, settings, detected perks, current penalty, calibration, and logged bust history. Your API key is never included, and this script never reads your username, ID, or faction.'],
     apikey: ['API key', 'BUSTR needs three things from Torn: your level, your bust perks, and your own bust history. "Create a key for BUSTR" opens Torn\'s API page with exactly those (' + API_KEY_SELECTIONS + ') pre-ticked and nothing else, so the key cannot touch your money, mail, or faction. Generate it there, paste it here. The key is stored on this device only and sent nowhere except Torn\'s own API. On PDA the app supplies its own key; saving one here overrides it.'],
+    cloudsync: ['Cloud sync', 'Off by default. When on, your bust history is backed up to a database and merged across your devices, tied to your verified Torn ID. Only bust stats are stored (hardness, penalty, outcome, time), never your API key or any personal info. Aggregate stats also help improve BUSTR\'s model. Turning it off deletes your cloud copy. Desktop only for now; on a phone or PDA the option is inactive.'],
     reset: ['Reset settings', 'Puts every setting in this panel back to its default. Your saved API key and your logged bust history are both kept.'],
     wipe: ['Clear all data', 'Removes everything BUSTR has stored on this device: settings, saved API key, and your entire logged bust history. This cannot be undone.'],
   };
@@ -2815,6 +3055,13 @@ body.bustr-no-success .bustr-success-chance {display: none;}
       <button type="button" class="bustr-btn" id="bustr-set-apikey-clear">Clear saved key</button>
       <hr>
 
+      <div class="bustr-section">Cloud sync ${q('cloudsync')}</div>
+      <div class="bustr-hint" id="bustr-cloud-status"></div>
+      <div class="bustr-row"><label>Sync my bust history</label><input type="checkbox" id="bustr-set-cloudsync"></div>
+      <div class="bustr-hint">Off by default. Backs up your bust history across devices, tied to your Torn ID. Only bust stats are stored, never your API key. Desktop only for now.</div>
+      <button type="button" class="bustr-btn" id="bustr-set-cloud-delete">Delete my cloud data</button>
+      <hr>
+
       <div class="bustr-section">Debug export ${q('exportHelp')}</div>
       <button type="button" class="bustr-btn" id="bustr-set-export">Copy debug export</button>
       <textarea id="bustr-set-export-area" readonly style="display:none;width:100%;height:80px;margin-top:6px;background:#1a1a1a;color:#ddd;border:1px solid #444;border-radius:4px;font-size:10px;padding:4px;box-sizing:border-box;"></textarea>
@@ -2939,6 +3186,42 @@ body.bustr-no-success .bustr-success-chance {display: none;}
       refreshSettingsStatus();
       loadController();
     });
+
+    // Cloud sync. The checkbox turning ON must ask for consent BEFORE anything signs
+    // in or uploads; cancel or any failure reverts it so the box never lies about state.
+    const cloudBox = byId('bustr-set-cloudsync');
+    if (cloudBox) {
+      if (!hasGMXhr) cloudBox.disabled = true; // desktop-only feature; inert on PDA/mobile shims
+      cloudBox.addEventListener('change', async (e) => {
+        if (e.target.checked) {
+          const ok = await showCloudConsent();
+          if (!ok) { e.target.checked = false; return; }
+          refreshCloudStatus('Enabling...');
+          try {
+            await CloudSync.enable();
+            refreshCloudStatus();
+          } catch (err) {
+            e.target.checked = false;
+            refreshCloudStatus('Could not enable: ' + (err && err.message ? err.message : err));
+          }
+        } else {
+          refreshCloudStatus('Turning off and deleting cloud copy...');
+          try { await CloudSync.disableAndDelete(); } catch (err) { /* local flag already off; ignore */ }
+          refreshCloudStatus();
+        }
+      });
+    }
+    // "Delete my cloud data": two-tap like the other destructive actions. Also turns
+    // sync off, since deleting while still syncing would just re-upload on the next bust.
+    wireTwoStepButton(byId('bustr-set-cloud-delete'),
+      'Delete my cloud data', 'Tap again to delete it',
+      async () => {
+        refreshCloudStatus('Deleting cloud copy...');
+        try { await CloudSync.disableAndDelete(); } catch (err) { /* ignore */ }
+        const cb = byId('bustr-set-cloudsync'); if (cb) cb.checked = false;
+        refreshCloudStatus();
+      });
+
     // No "Re-enter API key" button any more: it did exactly what "Clear saved key"
     // above does (delete the stored key), just with a page reload, and having both
     // in the same panel made it look like one of them did something else.
@@ -3062,6 +3345,7 @@ body.bustr-no-success .bustr-success-chance {display: none;}
 
       migrateFromLegacyStorage();
       loadGlobalBustrState();
+      CloudSync.initFromLoad(); // if sync is enabled + signed in, pull cloud history and merge (no-op otherwise)
       // Restore the cached level so the success model is right before the API replies
       if (typeof getGlobalBustrState().playerLevel === 'number') {
         playerLevel = getGlobalBustrState().playerLevel;
