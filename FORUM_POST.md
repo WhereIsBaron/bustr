@@ -6,7 +6,7 @@ Keep the credit to Adobi & Ironhydedragon at the top and the fork version (v1.0.
 
 ---
 
-CURRENT VERSION: BUSTR v2.12.2
+CURRENT VERSION: BUSTR v2.13.0
 
 [ INSTALL - BUSTR: JAIL BUST ASSISTANT ]
 
@@ -45,11 +45,13 @@ BUSTR never clicks, submits, or automates anything for you. It reads your own of
 
 **API Terms of Service**
 
-You keep full control of your data. Everything is stored in your own browser and nothing is sent anywhere except Torn's own API, using your key, for your own account.
+Your API key never leaves your device: it is used only for Torn's own API. By default everything BUSTR stores stays in your own browser. There is one optional extra, cloud sync, which is off unless you turn it on (see below).
 
 | Data Storage | Data Sharing | Purpose of Use | Key Storage & Sharing | Key Access Level |
 | --- | --- | --- | --- | --- |
-| Only locally | Nobody | Not eligible - only you have access | Stored locally / Not shared | Custom (see below) |
+| Locally by default; bust history only if you enable cloud sync | Nobody unless you enable cloud sync (then bust history is stored by the maintainer) | Improving BUSTR / restoring your history across devices | Stored locally / Never shared | Custom (see below) |
+
+**Optional cloud sync (off by default):** BUSTR can optionally back up your bust history so it follows you across devices. It is opt-in, defaults to off, and asks for explicit consent the first time you switch it on. When it is on, only your bust history (the same data behind the debug export) is stored in the maintainer's database, keyed to your Torn player ID; your API key is never uploaded. You can turn it off and delete your cloud copy at any time from the settings panel. Leave it off and BUSTR behaves exactly as before, fully local.
 
 Selections used: `user` -> `basic` (your level), `perks` (your bust perks), `log` (your own bust history). Nothing else is requested. **You do not need to give BUSTR a Full Access key** - use the custom key link below, or the "Create a key for BUSTR" button inside the settings panel, which opens the same thing with the boxes already ticked:
 

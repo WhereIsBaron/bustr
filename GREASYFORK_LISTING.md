@@ -17,7 +17,9 @@ IMPORTANT: set the Additional info format toggle to **Markdown** (not HTML) on G
 
 ### Your privacy and your account come first
 - BUSTR never clicks, submits, or automates anything for you. It only reads what is already on the page and shows you numbers and colours. The full statement lives in the COMPLIANCE NOTE at the top of the script, and it is a hard rule.
-- Nothing you do leaves your browser. Everything is stored locally through your userscript manager, or localStorage on PDA. The only network requests go to Torn's own official API, using your own key.
+- Your API key never leaves your device. It is stored locally and used only for Torn's own official API. It is never uploaded anywhere, including when cloud sync is on.
+- By default everything BUSTR stores stays on your device, through your userscript manager or localStorage on PDA. The only exception is the optional cloud sync below, which is off unless you turn it on.
+- Optional cloud sync (opt-in, off by default): you can choose to back up your bust history so it follows you across devices. It asks for explicit consent the first time you enable it, uploads only your bust history (never your API key), and can be turned off and its cloud copy deleted at any time from the settings panel. Leave it off and BUSTR is fully local, exactly as before.
 
 ### Performance
 The refresh rate in Settings (default 30 seconds, down to a 15 second floor) only changes how smoothly the on-screen countdown updates. It does not change how often BUSTR calls the Torn API. Those calls are throttled separately to at most once every 35 seconds on the jail page, and once every 30 minutes elsewhere. BUSTR also pauses completely whenever its tab is in the background, so it does nothing while you are not looking at it. The result is negligible CPU and battery use, even on lower-end devices.
