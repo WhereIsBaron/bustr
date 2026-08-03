@@ -6,6 +6,15 @@ contribution branch, proposed by The_Baron [1467784].
 
 ---
 
+## v2.13.1
+- [INTERNAL] Cloud sync now makes far fewer database calls. Two changes,
+  no visible difference: (1) on page load it pulls from the cloud at most
+  once every 5 minutes per device instead of on every single Torn page
+  navigation; (2) a pull that finds the cloud already up to date no longer
+  writes an identical copy straight back - it stays a pure read. New busts
+  still upload within a few seconds as before. This keeps a busy play
+  session well inside the free-tier quotas and cuts needless traffic.
+
 ## v2.13.0
 - [NEW] Optional cloud sync for your bust history - opt-in, default OFF.
   Turn it on in Settings and your outcome log is backed up to a database

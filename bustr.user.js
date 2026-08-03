@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BUSTR: Jail Bust Assistant + PDA (Baron)
 // @namespace    http://torn.city.com.dot.com.com
-// @version      2.13.0
+// @version      2.13.1
 // @description  Shows your success odds on every jailed target, and how many busts you can make before failure gets likely
 // @author       Adobi & Ironhydedragon
 // @author       The_Baron [1467784] - added bust success % prediction, penalty weighting fitted to real outcomes, self-calibration from logged outcomes, a full settings panel, and reliability/storage hardening
@@ -42,7 +42,7 @@
   ////////////////////////////////////////////////////////////////////////////
 
   const DEBUG = false; // set true while debugging to re-enable console logs
-  const SCRIPT_VERSION = '2.13.0'; // keep in sync with the @version header above - stamped into diagnostic exports
+  const SCRIPT_VERSION = '2.13.1'; // keep in sync with the @version header above - stamped into diagnostic exports
 
   // Penalty model. Matches the documented in-game mechanic: each bust adds a
   // penalty that decays hyperbolically as P0 / (1 + c*t), losing half at 10h and
@@ -248,6 +248,8 @@
   const CLOUD_FIREBASE_API_KEY = 'AIzaSyCw5UQGI-N1pEJZ7xg3OvO_elaTLQfeDYg';
   const CLOUD_PROJECT_ID = 'bustr---jail-bust-assistant';
   const CLOUD_AUTH_KEY = 'bustrCloudAuth'; // kept OUT of state so it never lands in a debug export
+  const CLOUD_PULL_KEY = 'bustrCloudLastPull'; // device-local timestamp of the last successful pull (not synced)
+  const CLOUD_PULL_MIN_INTERVAL_MS = 5 * 60 * 1000; // do not re-pull from the cloud more than once per 5 min per device
 
   const log = (...args) => { if (DEBUG) console.log('[BUSTR]', ...args); };
 
@@ -1214,7 +1216,10 @@
       if (merged.length !== localLog.length) {
         setGlobalBustrState({ outcomeLog: merged, selfCalibrationValue: computeSelfCalibration(merged) });
       }
-      await fsPatch(a.uid, merged);
+      // Only write back when the cloud is actually missing entries we have. When the
+      // cloud already holds everything (the common case on a page load), this is a pure
+      // read and costs no write - the old code wrote on every single load.
+      if (merged.length !== (cloud ? cloud.length : 0)) await fsPatch(a.uid, merged);
     }
     async function push() { const a = loadAuth(); if (a) await fsPatch(a.uid, getGlobalBustrState().outcomeLog || []); }
     function pushSoon() {
@@ -1224,7 +1229,14 @@
     }
     function initFromLoad() {
       if (!enabled() || !signedIn() || !hasGMXhr) return;
-      pullMerge().catch((e) => log('cloud pull failed', e));
+      // Torn navigations each re-run the whole script, so an unthrottled pull would hit
+      // the cloud on every page load. A backup only needs to converge occasionally, so
+      // cap pulls to once per CLOUD_PULL_MIN_INTERVAL_MS per device. New busts still push
+      // up immediately via pushSoon; this only rate-limits pulling other devices' changes.
+      const last = Number(Store.get(CLOUD_PULL_KEY) || 0);
+      if (Date.now() - last < CLOUD_PULL_MIN_INTERVAL_MS) return;
+      pullMerge().then(() => Store.set(CLOUD_PULL_KEY, Date.now()))
+                 .catch((e) => log('cloud pull failed', e));
     }
     async function enable() {
       const apiKey = getApiKey();

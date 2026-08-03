@@ -4,6 +4,9 @@ Patch notes for BUSTR, a jail-busting helper userscript for Torn. Original scrip
 
 ---
 
+## v2.13.1
+- [INTERNAL] **Cloud sync now makes far fewer database calls.** Two changes, no visible difference: (1) on page load it pulls from the cloud at most once every 5 minutes per device instead of on every single Torn page navigation; (2) a pull that finds the cloud already up to date no longer writes an identical copy straight back - it stays a pure read. New busts still upload within a few seconds as before. This keeps a busy play session well inside the free-tier quotas and cuts needless traffic.
+
 ## v2.13.0
 - [NEW] **Optional cloud sync for your bust history - opt-in, default OFF.** Turn it on in Settings and your outcome log is backed up to a database and merged across your devices, keyed to your verified Torn ID, so your history and self-calibration follow you between desktop installs. It never performs a game action - it only stores the numbers BUSTR already logs - so the read-only compliance stance is unchanged.
 - [PRIVACY] Only bust stats are stored (hardness, penalty, outcome, timestamp). **Your API key is never uploaded** and never leaves the device; it's used once to verify your Torn ID, via a server function that mints a scoped access token. Each user can only ever read their own data (enforced server-side). Enabling shows an explicit consent prompt first; turning it off deletes your cloud copy. Aggregate stats help improve the model.
