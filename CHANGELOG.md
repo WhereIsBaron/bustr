@@ -4,6 +4,10 @@ Patch notes for BUSTR, a jail-busting helper userscript for Torn. Original scrip
 
 ---
 
+## v2.14.0
+- [CHANGED] **Cloud sync now also backs up your bust perks and level, not just your bust history.** For opted-in users, each sync stores a snapshot of your detected bust perks and your level alongside the outcome log, so BUSTR's success model can be studied and improved against real perk-and-outcome data across users. As before this is opt-in and off by default, tied to your verified Torn ID, and deleted when you switch sync off.
+- [PRIVACY] The consent prompt, settings help, and listing/forum disclosures are updated to say exactly this: what IS stored is your bust stats, your bust perks, and your level; what is NEVER stored is your API key, name, ID, or faction. The perk calibration you see is still computed locally - uploading perks only lets the shared model learn from them. If you had sync on before, your perks and level are added on the next sync; nothing else changes.
+
 ## v2.13.3
 - [INTERNAL] **Cloud sync is much lighter on the database, so it scales to many more users on the free tier.** Uploads now coalesce a whole busting flurry into a single write (the timer resets on each bust and flushes once you pause) instead of writing after every bust, and the once-per-load cloud pull is now capped at once per hour per device instead of once every five minutes. Enabling sync still pulls immediately so a new device restores your history right away, and nothing is lost - anything not yet uploaded is caught by the next upload or the next hourly sync. Also de-duplicated the internal Firestore request code.
 

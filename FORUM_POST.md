@@ -59,8 +59,8 @@ Your API key never leaves your device: it is used only for Torn's own API. By de
 <td style="border:1px solid #888; padding:4px 8px;"><strong>Key Access Level</strong></td>
 </tr>
 <tr>
-<td style="border:1px solid #888; padding:4px 8px;">Locally by default; bust history also stored in the cloud if you turn on cloud sync</td>
-<td style="border:1px solid #888; padding:4px 8px;">Nobody by default; bust history shared with the maintainer only if you turn on cloud sync</td>
+<td style="border:1px solid #888; padding:4px 8px;">Locally by default; if you turn on cloud sync, your bust history plus your bust perks and level are stored in the cloud</td>
+<td style="border:1px solid #888; padding:4px 8px;">Nobody by default; if you turn on cloud sync, your bust history, bust perks, and level are stored by the maintainer</td>
 <td style="border:1px solid #888; padding:4px 8px;">Assistive use, plus improving BUSTR and restoring your history across your devices</td>
 <td style="border:1px solid #888; padding:4px 8px;">Stored locally; never shared</td>
 <td style="border:1px solid #888; padding:4px 8px;">Custom (see below)</td>
@@ -70,7 +70,7 @@ Your API key never leaves your device: it is used only for Torn's own API. By de
 
 (Cloud sync is opt-in and off by default; see the "Optional cloud sync" note below.)
 
-**Optional cloud sync (off by default):** BUSTR can optionally back up your bust history so it follows you across devices. It is opt-in, defaults to off, and asks for explicit consent the first time you switch it on. When it is on, only your bust history (the same data behind the debug export) is stored in the maintainer's database, keyed to your Torn player ID; your API key is never uploaded. You can turn it off and delete your cloud copy at any time from the settings panel. Leave it off and BUSTR behaves exactly as before, fully local. When it is on it is deliberately lightweight - a whole busting session saves as a single upload and it only checks your other devices about once an hour - so it adds no noticeable overhead.
+**Optional cloud sync (off by default):** BUSTR can optionally back up your bust history so it follows you across devices. It is opt-in, defaults to off, and asks for explicit consent the first time you switch it on. When it is on, your bust history, your bust perks, and your level are stored in the maintainer's database, keyed to your Torn player ID - the perks and level help improve BUSTR's success model. Your API key is never uploaded, and your name, ID, and faction are never stored. You can turn it off and delete your cloud copy at any time from the settings panel. Leave it off and BUSTR behaves exactly as before, fully local. When it is on it is deliberately lightweight - a whole busting session saves as a single upload and it only checks your other devices about once an hour - so it adds no noticeable overhead.
 
 Selections used: `user` -> `basic` (your level), `perks` (your bust perks), `log` (your own bust history). Nothing else is requested. **You do not need to give BUSTR a Full Access key** - use the custom key link below, or the "Create a key for BUSTR" button inside the settings panel, which opens the same thing with the boxes already ticked:
 
