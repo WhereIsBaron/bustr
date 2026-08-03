@@ -6,7 +6,7 @@ Keep the credit to Adobi & Ironhydedragon at the top and the fork version (v1.0.
 
 ---
 
-CURRENT VERSION: BUSTR v2.13.0
+CURRENT VERSION: BUSTR v2.13.3
 
 [ INSTALL - BUSTR: JAIL BUST ASSISTANT ]
 
@@ -51,7 +51,7 @@ Your API key never leaves your device: it is used only for Torn's own API. By de
 | --- | --- | --- | --- | --- |
 | Locally by default; bust history only if you enable cloud sync | Nobody unless you enable cloud sync (then bust history is stored by the maintainer) | Improving BUSTR / restoring your history across devices | Stored locally / Never shared | Custom (see below) |
 
-**Optional cloud sync (off by default):** BUSTR can optionally back up your bust history so it follows you across devices. It is opt-in, defaults to off, and asks for explicit consent the first time you switch it on. When it is on, only your bust history (the same data behind the debug export) is stored in the maintainer's database, keyed to your Torn player ID; your API key is never uploaded. You can turn it off and delete your cloud copy at any time from the settings panel. Leave it off and BUSTR behaves exactly as before, fully local.
+**Optional cloud sync (off by default):** BUSTR can optionally back up your bust history so it follows you across devices. It is opt-in, defaults to off, and asks for explicit consent the first time you switch it on. When it is on, only your bust history (the same data behind the debug export) is stored in the maintainer's database, keyed to your Torn player ID; your API key is never uploaded. You can turn it off and delete your cloud copy at any time from the settings panel. Leave it off and BUSTR behaves exactly as before, fully local. When it is on it is deliberately lightweight - a whole busting session saves as a single upload and it only checks your other devices about once an hour - so it adds no noticeable overhead.
 
 Selections used: `user` -> `basic` (your level), `perks` (your bust perks), `log` (your own bust history). Nothing else is requested. **You do not need to give BUSTR a Full Access key** - use the custom key link below, or the "Create a key for BUSTR" button inside the settings panel, which opens the same thing with the boxes already ticked:
 
