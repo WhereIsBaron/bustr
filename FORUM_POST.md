@@ -47,11 +47,14 @@ BUSTR never clicks, submits, or automates anything for you. It reads your own of
 
 Your API key never leaves your device: it is used only for Torn's own API. By default everything BUSTR stores stays in your own browser. There is one optional extra, cloud sync, which is off unless you turn it on (see below).
 
-Data Storage: Locally by default. Your bust history is stored in the cloud only if you enable cloud sync.
-Data Sharing: Nobody, unless you enable cloud sync - then your bust history is stored by the maintainer.
-Purpose of Use: Improving BUSTR, and restoring your history across your own devices.
-Key Storage and Sharing: Stored locally, never shared.
-Key Access Level: Custom (see below).
+[code]
++--------------+--------------+----------------+---------------------+------------------+
+| Data Storage | Data Sharing | Purpose of Use | Key Storage/Sharing | Key Access Level |
++--------------+--------------+----------------+---------------------+------------------+
+| Local *      | Nobody *     | Assistive only | Local / Not shared  | Custom (below)   |
++--------------+--------------+----------------+---------------------+------------------+
+[/code]
+* Bust history is also backed up to the cloud, and may be used by the maintainer to improve BUSTR, only if you turn on the optional cloud sync (off by default, see below).
 
 **Optional cloud sync (off by default):** BUSTR can optionally back up your bust history so it follows you across devices. It is opt-in, defaults to off, and asks for explicit consent the first time you switch it on. When it is on, only your bust history (the same data behind the debug export) is stored in the maintainer's database, keyed to your Torn player ID; your API key is never uploaded. You can turn it off and delete your cloud copy at any time from the settings panel. Leave it off and BUSTR behaves exactly as before, fully local. When it is on it is deliberately lightweight - a whole busting session saves as a single upload and it only checks your other devices about once an hour - so it adds no noticeable overhead.
 
