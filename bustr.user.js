@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BUSTR: Jail Bust Assistant + PDA (Baron)
 // @namespace    http://torn.city.com.dot.com.com
-// @version      2.13.2
+// @version      2.13.3
 // @description  Shows your success odds on every jailed target, and how many busts you can make before failure gets likely
 // @author       Adobi & Ironhydedragon
 // @author       The_Baron [1467784] - added bust success % prediction, penalty weighting fitted to real outcomes, self-calibration from logged outcomes, a full settings panel, and reliability/storage hardening
@@ -42,7 +42,7 @@
   ////////////////////////////////////////////////////////////////////////////
 
   const DEBUG = false; // set true while debugging to re-enable console logs
-  const SCRIPT_VERSION = '2.13.2'; // keep in sync with the @version header above - stamped into diagnostic exports
+  const SCRIPT_VERSION = '2.13.3'; // keep in sync with the @version header above - stamped into diagnostic exports
 
   // Penalty model. Matches the documented in-game mechanic: each bust adds a
   // penalty that decays hyperbolically as P0 / (1 + c*t), losing half at 10h and
@@ -249,7 +249,8 @@
   const CLOUD_PROJECT_ID = 'bustr---jail-bust-assistant';
   const CLOUD_AUTH_KEY = 'bustrCloudAuth'; // kept OUT of state so it never lands in a debug export
   const CLOUD_PULL_KEY = 'bustrCloudLastPull'; // device-local timestamp of the last successful pull (not synced)
-  const CLOUD_PULL_MIN_INTERVAL_MS = 5 * 60 * 1000; // do not re-pull from the cloud more than once per 5 min per device
+  const CLOUD_PULL_MIN_INTERVAL_MS = 60 * 60 * 1000; // re-pull from the cloud at most once per hour per device (a backup only needs occasional convergence; enabling sync still pulls immediately to restore)
+  const CLOUD_PUSH_DEBOUNCE_MS = 90 * 1000; // coalesce a whole busting flurry into one write: the timer resets on each bust, so back-to-back busts flush as a single upload once you pause
 
   const log = (...args) => { if (DEBUG) console.log('[BUSTR]', ...args); };
 
@@ -1200,25 +1201,29 @@
       await refresh();
       return idToken;
     }
+    // One authenticated Firestore REST call. Centralises the token fetch and Bearer
+    // header that all three verbs used to repeat; pass a body only for writes.
+    async function fsRequest(method, url, body) {
+      const headers = { Authorization: 'Bearer ' + (await ensureToken()) };
+      const opts = { headers };
+      if (body != null) { headers['Content-Type'] = 'application/json'; opts.body = body; }
+      return gmRequest(method, url, opts);
+    }
     async function fsGet(uid) {
-      const t = await ensureToken();
-      const r = await gmRequest('GET', docUrl(uid), { headers: { Authorization: 'Bearer ' + t } });
+      const r = await fsRequest('GET', docUrl(uid));
       if (r.status === 404) return null;
       if (r.status !== 200) throw new Error('read failed (' + r.status + ')');
       const fields = (JSON.parse(r.text || '{}').fields) || {};
       return fields.log ? fromFsValue(fields.log) : [];
     }
     async function fsPatch(uid, logArr) {
-      const t = await ensureToken();
       const body = JSON.stringify({ fields: { log: toFsValue(logArr), updatedAt: toFsValue(Date.now()) } });
-      const r = await gmRequest('PATCH',
-        docUrl(uid) + '?updateMask.fieldPaths=log&updateMask.fieldPaths=updatedAt',
-        { headers: { Authorization: 'Bearer ' + t, 'Content-Type': 'application/json' }, body });
+      const r = await fsRequest('PATCH',
+        docUrl(uid) + '?updateMask.fieldPaths=log&updateMask.fieldPaths=updatedAt', body);
       if (r.status !== 200) throw new Error('write failed (' + r.status + ')');
     }
     async function fsDelete(uid) {
-      const t = await ensureToken();
-      const r = await gmRequest('DELETE', docUrl(uid), { headers: { Authorization: 'Bearer ' + t } });
+      const r = await fsRequest('DELETE', docUrl(uid));
       if (r.status !== 200 && r.status !== 404) throw new Error('delete failed (' + r.status + ')');
     }
     // Union by timestamp, sorted, capped - so two devices converge to the same log.
@@ -1249,7 +1254,7 @@
     function pushSoon() {
       if (!enabled() || !signedIn()) return;
       if (pushTimer) clearTimeout(pushTimer);
-      pushTimer = setTimeout(() => push().catch((e) => log('cloud push failed', e)), 4000);
+      pushTimer = setTimeout(() => push().catch((e) => log('cloud push failed', e)), CLOUD_PUSH_DEBOUNCE_MS);
     }
     function initFromLoad() {
       if (!enabled() || !signedIn() || !hasGMXhr) return;

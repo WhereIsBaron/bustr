@@ -6,6 +6,18 @@ contribution branch, proposed by The_Baron [1467784].
 
 ---
 
+## v2.13.3
+- [INTERNAL] Cloud sync is much lighter on the database, so it scales to
+  many more users on the free tier. Uploads now coalesce a whole busting
+  flurry into a single write (the timer resets on each bust and flushes
+  once you pause) instead of writing after every bust, and the
+  once-per-load cloud pull is now capped at once per hour per device
+  instead of once every five minutes. Enabling sync still pulls
+  immediately so a new device restores your history right away, and
+  nothing is lost - anything not yet uploaded is caught by the next
+  upload or the next hourly sync. Also de-duplicated the internal
+  Firestore request code.
+
 ## v2.13.2
 - [FIX] Removes synthetic test rows from your logged history. The private
   cloud test wrote a couple of placeholder "bust" rows (tagged with an

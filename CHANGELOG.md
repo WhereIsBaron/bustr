@@ -4,6 +4,9 @@ Patch notes for BUSTR, a jail-busting helper userscript for Torn. Original scrip
 
 ---
 
+## v2.13.3
+- [INTERNAL] **Cloud sync is much lighter on the database, so it scales to many more users on the free tier.** Uploads now coalesce a whole busting flurry into a single write (the timer resets on each bust and flushes once you pause) instead of writing after every bust, and the once-per-load cloud pull is now capped at once per hour per device instead of once every five minutes. Enabling sync still pulls immediately so a new device restores your history right away, and nothing is lost - anything not yet uploaded is caught by the next upload or the next hourly sync. Also de-duplicated the internal Firestore request code.
+
 ## v2.13.2
 - [FIX] **Removes synthetic test rows from your logged history.** The private cloud test wrote a couple of placeholder "bust" rows (tagged with an internal note field that no real bust ever has) into the stored log. On load, BUSTR now strips any such non-genuine rows, and the cloud-sync merge refuses to re-add them, so they disappear from your sample count and success-rate stats and get cleaned out of the cloud copy on the next sync. Genuine busts - including older ones recorded before model versioning - are untouched. The success-percentage fit was never affected (it already only uses rows stamped with the current model version), so predictions do not change.
 
