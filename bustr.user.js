@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BUSTR: Jail Bust Assistant + PDA (Baron)
 // @namespace    http://torn.city.com.dot.com.com
-// @version      2.13.1
+// @version      2.13.2
 // @description  Shows your success odds on every jailed target, and how many busts you can make before failure gets likely
 // @author       Adobi & Ironhydedragon
 // @author       The_Baron [1467784] - added bust success % prediction, penalty weighting fitted to real outcomes, self-calibration from logged outcomes, a full settings panel, and reliability/storage hardening
@@ -42,7 +42,7 @@
   ////////////////////////////////////////////////////////////////////////////
 
   const DEBUG = false; // set true while debugging to re-enable console logs
-  const SCRIPT_VERSION = '2.13.1'; // keep in sync with the @version header above - stamped into diagnostic exports
+  const SCRIPT_VERSION = '2.13.2'; // keep in sync with the @version header above - stamped into diagnostic exports
 
   // Penalty model. Matches the documented in-game mechanic: each bust adds a
   // penalty that decays hyperbolically as P0 / (1 + c*t), losing half at 10h and
@@ -815,6 +815,15 @@
     return outcomeLog.filter((o) => o && o.m === OUTCOME_MODEL_VERSION);
   }
 
+  // True for a genuine logged bust. The private cloud round-trip test (cloud/test/
+  // test.html) wrote sample rows tagged with a `note` field; nothing in BUSTR ever
+  // writes one, so a `note` is the unambiguous signature of a synthetic test write. A
+  // numeric ts is also required - it is the merge/sort key. Real legacy entries that
+  // predate model versioning have no `m` stamp; those are still real busts and are kept.
+  function isRealOutcome(o) {
+    return !!o && typeof o === 'object' && typeof o.ts === 'number' && !('note' in o);
+  }
+
   // Grid-search the calibration that best matches predicted vs actual outcomes.
   // Returns null if there aren't enough eligible attempts yet.
   //
@@ -1067,6 +1076,21 @@
     console.log(`[BUSTR] Self-calibration: logged ${outcomeLabel} (hardness ${attempt.hardness}, predicted ${attempt.predictedChance}%) - ${outcomeLog.length} sample(s) recorded.`);
   }
 
+  // Drop any non-genuine rows from the stored log (see isRealOutcome). This heals a log
+  // that picked up synthetic rows from the cloud round-trip test, so they never reach the
+  // displayed stats or get pushed back to the cloud. Runs once at load and is a no-op when
+  // the log is already clean. The fit itself is unaffected either way, since
+  // fittableOutcomes already admits only current-model (`m`) rows.
+  function sanitizeOutcomeLog() {
+    const state = getGlobalBustrState();
+    const logArr = Array.isArray(state.outcomeLog) ? state.outcomeLog : [];
+    const clean = logArr.filter(isRealOutcome);
+    if (clean.length !== logArr.length) {
+      setGlobalBustrState({ outcomeLog: clean, selfCalibrationValue: computeSelfCalibration(clean) });
+      console.log(`[BUSTR] Removed ${logArr.length - clean.length} non-genuine outcome row(s) from the log.`);
+    }
+  }
+
   ////////////////////////////////////////////////////////////////////////////
   ////  CLOUD SYNC (opt-in, default OFF - see COMPLIANCE NOTE, this only stores data)
   ////////////////////////////////////////////////////////////////////////////
@@ -1200,7 +1224,7 @@
     // Union by timestamp, sorted, capped - so two devices converge to the same log.
     function mergeLogs(a, b) {
       const seen = new Map();
-      for (const o of [...(a || []), ...(b || [])]) if (o && typeof o.ts === 'number') seen.set(o.ts, o);
+      for (const o of [...(a || []), ...(b || [])]) if (isRealOutcome(o)) seen.set(o.ts, o);
       const out = [...seen.values()].sort((x, y) => x.ts - y.ts);
       while (out.length > OUTCOME_LOG_MAX) out.shift();
       return out;
@@ -3357,6 +3381,7 @@ body.bustr-no-success .bustr-success-chance {display: none;}
 
       migrateFromLegacyStorage();
       loadGlobalBustrState();
+      sanitizeOutcomeLog(); // strip any synthetic/test rows before they can sync or reach the stats
       CloudSync.initFromLoad(); // if sync is enabled + signed in, pull cloud history and merge (no-op otherwise)
       // Restore the cached level so the success model is right before the API replies
       if (typeof getGlobalBustrState().playerLevel === 'number') {
