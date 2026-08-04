@@ -6,12 +6,6 @@ contribution branch, proposed by The_Baron [1467784].
 
 ---
 
-## v2.15.1
-- [CHANGED] On PDA, when the injected key is working the settings panel
-  now shows the same "API key is saved." status as a saved desktop key,
-  instead of a longer PDA-specific line. The opt-in "Use your own key
-  instead" override link is unchanged. Wording only.
-
 ## v2.15.0
 - [FIX] BUSTR no longer makes your browser offer to autofill a password
   in Torn's text boxes. The settings panel's API-key field was a password
@@ -22,11 +16,11 @@ contribution branch, proposed by The_Baron [1467784].
   managers (LastPass, 1Password, Bitwarden, Dashlane) to skip it.
 - [CHANGED] Torn PDA no longer looks like it wants your API key twice. On
   PDA the app already injects your key at install, so when that key is
-  working BUSTR now just shows "a working key from the PDA app is active -
-  nothing to enter here" instead of a second key box. If the injected key
-  is missing, the wrong length, or being rejected by Torn, the entry stays
-  open so you can fix it; and there's an opt-in "Use your own key instead"
-  link if you ever want to override the PDA key with your own.
+  working BUSTR now just shows "API key is saved." (the same as a saved
+  desktop key) instead of a second key box. If the injected key is missing,
+  the wrong length, or being rejected by Torn, the entry stays open so you
+  can fix it; and there's an opt-in "Use your own key instead" link if you
+  ever want to override the PDA key with your own.
 
 ## v2.14.0
 - [CHANGED] Cloud sync now also backs up your bust perks and level, not

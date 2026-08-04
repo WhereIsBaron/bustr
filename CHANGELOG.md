@@ -4,12 +4,9 @@ Patch notes for BUSTR, a jail-busting helper userscript for Torn. Original scrip
 
 ---
 
-## v2.15.1
-- [CHANGED] On PDA, when the injected key is working the settings panel now shows the same **"API key is saved."** status as a saved desktop key, instead of a longer PDA-specific line. The opt-in "Use your own key instead" override link is unchanged. Wording only.
-
 ## v2.15.0
 - [FIX] **BUSTR no longer makes your browser offer to autofill a password in Torn's text boxes.** The settings panel's API-key field was a `type="password"` input, which made the browser's built-in password manager pop up its "Manage passwords" prompt and try to autofill nearby boxes (like the chat search) - it stopped only when BUSTR was disabled. The field now masks your key without being a password field, and tells third-party managers (LastPass, 1Password, Bitwarden, Dashlane) to skip it.
-- [CHANGED] **Torn PDA no longer looks like it wants your API key twice.** On PDA the app already injects your key at install, so when that key is working BUSTR now just shows "a working key from the PDA app is active - nothing to enter here" instead of a second key box. If the injected key is missing, the wrong length, or being rejected by Torn, the entry stays open so you can fix it; and there's an opt-in "Use your own key instead" link if you ever want to override the PDA key with your own.
+- [CHANGED] **Torn PDA no longer looks like it wants your API key twice.** On PDA the app already injects your key at install, so when that key is working BUSTR now just shows "API key is saved." (the same as a saved desktop key) instead of a second key box. If the injected key is missing, the wrong length, or being rejected by Torn, the entry stays open so you can fix it; and there's an opt-in "Use your own key instead" link if you ever want to override the PDA key with your own.
 
 ## v2.14.0
 - [CHANGED] **Cloud sync now also backs up your bust perks and level, not just your bust history.** For opted-in users, each sync stores a snapshot of your detected bust perks and your level alongside the outcome log, so BUSTR's success model can be studied and improved against real perk-and-outcome data across users. As before this is opt-in and off by default, tied to your verified Torn ID, and deleted when you switch sync off.
