@@ -6,6 +6,12 @@ contribution branch, proposed by The_Baron [1467784].
 
 ---
 
+## v2.15.1
+- [CHANGED] On PDA, when the injected key is working the settings panel
+  now shows the same "API key is saved." status as a saved desktop key,
+  instead of a longer PDA-specific line. The opt-in "Use your own key
+  instead" override link is unchanged. Wording only.
+
 ## v2.15.0
 - [FIX] BUSTR no longer makes your browser offer to autofill a password
   in Torn's text boxes. The settings panel's API-key field was a password

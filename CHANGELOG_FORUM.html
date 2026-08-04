@@ -1,4 +1,9 @@
 <p>Patch notes for BUSTR, a jail-busting helper userscript for Torn. Original script by Adobi &amp; Ironhydedragon (MIT licensed). Entries below cover this contribution branch, proposed by The_Baron [1467784].</p>
+<p><strong>v2.15.1</strong></p>
+<ul>
+<li>[CHANGED] On PDA, when the injected key is working the settings panel now shows the same <strong>"API key is saved."</strong> status as a saved desktop key, instead of a longer PDA-specific line. The opt-in "Use your own key instead" override link is unchanged. Wording only.
+</li>
+</ul>
 <p><strong>v2.15.0</strong></p>
 <ul>
 <li>[FIX] <strong>BUSTR no longer makes your browser offer to autofill a password in Torn's text boxes.</strong> The settings panel's API-key field was a <code>type="password"</code> input, which made the browser's built-in password manager pop up its "Manage passwords" prompt and try to autofill nearby boxes (like the chat search) - it stopped only when BUSTR was disabled. The field now masks your key without being a password field, and tells third-party managers (LastPass, 1Password, Bitwarden, Dashlane) to skip it.
