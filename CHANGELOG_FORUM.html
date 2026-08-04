@@ -1,4 +1,11 @@
 <p>Patch notes for BUSTR, a jail-busting helper userscript for Torn. Original script by Adobi &amp; Ironhydedragon (MIT licensed). Entries below cover this contribution branch, proposed by The_Baron [1467784].</p>
+<p><strong>v2.15.0</strong></p>
+<ul>
+<li>[FIX] <strong>BUSTR no longer makes your browser offer to autofill a password in Torn's text boxes.</strong> The settings panel's API-key field was a <code>type="password"</code> input, which made the browser's built-in password manager pop up its "Manage passwords" prompt and try to autofill nearby boxes (like the chat search) - it stopped only when BUSTR was disabled. The field now masks your key without being a password field, and tells third-party managers (LastPass, 1Password, Bitwarden, Dashlane) to skip it.
+</li>
+<li>[CHANGED] <strong>Torn PDA no longer looks like it wants your API key twice.</strong> On PDA the app already injects your key at install, so when that key is working BUSTR now just shows "a working key from the PDA app is active - nothing to enter here" instead of a second key box. If the injected key is missing, the wrong length, or being rejected by Torn, the entry stays open so you can fix it; and there's an opt-in "Use your own key instead" link if you ever want to override the PDA key with your own.
+</li>
+</ul>
 <p><strong>v2.14.0</strong></p>
 <ul>
 <li>[CHANGED] <strong>Cloud sync now also backs up your bust perks and level, not just your bust history.</strong> For opted-in users, each sync stores a snapshot of your detected bust perks and your level alongside the outcome log, so BUSTR's success model can be studied and improved against real perk-and-outcome data across users. As before this is opt-in and off by default, tied to your verified Torn ID, and deleted when you switch sync off.

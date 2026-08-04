@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BUSTR: Jail Bust Assistant + PDA (Baron)
 // @namespace    http://torn.city.com.dot.com.com
-// @version      2.14.0
+// @version      2.15.0
 // @description  Shows your success odds on every jailed target, and how many busts you can make before failure gets likely
 // @author       Adobi & Ironhydedragon
 // @author       The_Baron [1467784] - added bust success % prediction, penalty weighting fitted to real outcomes, self-calibration from logged outcomes, a full settings panel, and reliability/storage hardening
@@ -42,7 +42,7 @@
   ////////////////////////////////////////////////////////////////////////////
 
   const DEBUG = false; // set true while debugging to re-enable console logs
-  const SCRIPT_VERSION = '2.14.0'; // keep in sync with the @version header above - stamped into diagnostic exports
+  const SCRIPT_VERSION = '2.15.0'; // keep in sync with the @version header above - stamped into diagnostic exports
 
   // Penalty model. Matches the documented in-game mechanic: each bust adds a
   // penalty that decays hyperbolically as P0 / (1 + c*t), losing half at 10h and
@@ -2012,6 +2012,8 @@ body.bustr-no-success .bustr-success-chance {display: none;}
             id="bustr-form__input"
             type="text"
             placeholder="Enter a full-acces API key..."
+            autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+            data-lpignore="true" data-1p-ignore data-bwignore data-form-type="other"
           />
           <a href="#" id="bustr-form__submit" type="btn" disabled><span class="link-text">Submit</span></a>
         </div>
@@ -2194,6 +2196,11 @@ body.bustr-no-success .bustr-success-chance {display: none;}
   // the API with a bad key (Torn warns repeated invalid-key calls can IP-ban you).
   let fatalKeyError = false;
   let resyncTimer = null;
+  // On PDA a working injected key means there is nothing to type, so the key entry
+  // collapses to a status line (see refreshApiKeyState). This latch lets the user
+  // force the entry back open via "Use your own key instead" without it snapping shut
+  // on the next panel refresh. Reset each time the panel opens.
+  let apiKeyEntryForced = false;
 
   async function loadController() {
     if (isLoading || fatalKeyError) return;
@@ -2518,6 +2525,7 @@ body.bustr-no-success .bustr-success-chance {display: none;}
     const p = document.getElementById('bustr-settings-panel');
     const b = document.getElementById('bustr-settings-backdrop');
     if (!p) return;
+    apiKeyEntryForced = false; // start collapsed each open when a healthy PDA key is active
     populateSettingsPanelInputs(); // resync every field to current settings, not just on first build
     refreshSettingsStatus();
     p.classList.add('bustr-open');
@@ -2562,9 +2570,20 @@ body.bustr-no-success .bustr-success-chance {display: none;}
     if (!el) return;
     const k = describeApiKey();
     const saved = k.source === 'user override';
+    // A PDA key BUSTR can actually use: injected, right length, and not currently being
+    // rejected by Torn. When it is healthy there is nothing to enter - the PDA app
+    // already supplied the key at install - so we do not want a second key box that
+    // reads as "type your key here" (the reported PDA double-entry). We collapse to the
+    // status line and offer an opt-in override instead. When the injected key is missing,
+    // the wrong length, or Torn is rejecting it, the entry stays open so the user can fix it.
+    const healthyPda = k.source === 'PDA injected' && k.looksValid && !fatalKeyError;
     let msg;
     if (saved) msg = 'API key is saved.';
-    else if (k.source === 'PDA injected') msg = 'Using the key supplied by the PDA app. Paste one here to override it.';
+    else if (k.source === 'PDA injected') {
+      msg = healthyPda
+        ? 'A working API key from the Torn PDA app is active - nothing to enter here.'
+        : 'The key from the PDA app is not working. Enter your own key below to override it.';
+    }
     else if (k.pdaTokenSubstituted) msg = 'The PDA app supplied an EMPTY key, so BUSTR has no key to use. Create one below.';
     else msg = 'No API key set. Create one below.';
     // Say it outright when the key is the wrong length. Torn answers a malformed key
@@ -2578,11 +2597,16 @@ body.bustr-no-success .bustr-success-chance {display: none;}
     // Once a key is saved there is nothing left to type, so the paste field and its
     // Save button only take up room and invite re-entering a key that already works.
     // Collapse to the status line plus a single Clear button; clearing brings the
-    // field back. Clear is likewise hidden when there is no saved key to clear.
+    // field back. Clear is likewise hidden when there is no saved key to clear. A
+    // healthy PDA key collapses the same way, but with an opt-in override link rather
+    // than a Clear button (there is no stored override to clear yet).
     const entry = document.getElementById('bustr-set-apikey-entry');
     const clearBtn = document.getElementById('bustr-set-apikey-clear');
-    if (entry) entry.style.display = saved ? 'none' : '';
+    const overrideLink = document.getElementById('bustr-set-apikey-override');
+    const collapse = saved || (healthyPda && !apiKeyEntryForced);
+    if (entry) entry.style.display = collapse ? 'none' : '';
     if (clearBtn) clearBtn.style.display = saved ? '' : 'none';
+    if (overrideLink) overrideLink.style.display = (healthyPda && !apiKeyEntryForced) ? '' : 'none';
   }
 
   function refreshSettingsStatus() {
@@ -3106,9 +3130,20 @@ body.bustr-no-success .bustr-success-chance {display: none;}
       <div id="bustr-set-apikey-entry">
         <a class="bustr-btn bustr-btn-link" id="bustr-set-apikey-make" href="${API_KEY_CREATE_URL}" target="_blank" rel="noopener noreferrer">Create a key for BUSTR</a>
         <div class="bustr-hint">Opens Torn's API page with only the ${API_KEY_SELECTIONS} boxes already ticked. Generate it there, then paste it below.</div>
-        <input type="password" id="bustr-set-apikey" placeholder="Paste your API key" autocomplete="off" style="width:100%;box-sizing:border-box;margin:4px 0;">
+        <!-- NOT type="password": a password field makes the browser's built-in password
+             manager offer to save/fill it, and pair it with a nearby text box (Torn's
+             chat search) to autofill - reported as "this script triggers autofill in
+             other boxes", and it stopped the moment BUSTR was disabled. autocomplete=off
+             does not help; browsers ignore it on password fields. We keep the value
+             masked instead with -webkit-text-security (Chromium desktop + the PDA
+             webview), and the data-*ignore hints tell 3rd-party managers to skip it. -->
+        <input type="text" id="bustr-set-apikey" placeholder="Paste your API key"
+          autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+          data-lpignore="true" data-1p-ignore data-bwignore data-form-type="other"
+          style="width:100%;box-sizing:border-box;margin:4px 0;-webkit-text-security:disc;">
         <button type="button" class="bustr-btn" id="bustr-set-apikey-save">Save key</button>
       </div>
+      <a class="bustr-btn bustr-btn-link" id="bustr-set-apikey-override" href="#" style="display:none;">Not working? Use your own key instead</a>
       <button type="button" class="bustr-btn" id="bustr-set-apikey-clear">Clear saved key</button>
       <hr>
 
@@ -3229,15 +3264,28 @@ body.bustr-no-success .bustr-success-chance {display: none;}
       setApiKey(key);
       input.value = '';
       fatalKeyError = false;
+      apiKeyEntryForced = false; // saved override now wins; collapse back to the status line
       setGlobalBustrState({ lastApiError: null });
       refreshApiKeyState();
       refreshSettingsStatus();
       loadController();
       forceProfileRefresh(); // re-read level/perks under the new key too
     });
+    // Opt-in escape hatch when the PDA app's injected key is active but the user wants
+    // their own: reveal the (otherwise collapsed) paste field. The latch keeps it open
+    // across panel refreshes until a key is saved or the panel is reopened.
+    const overrideLink = byId('bustr-set-apikey-override');
+    if (overrideLink) overrideLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      apiKeyEntryForced = true;
+      refreshApiKeyState();
+      const input = byId('bustr-set-apikey');
+      if (input) input.focus();
+    });
     byId('bustr-set-apikey-clear').addEventListener('click', () => {
       deleteApiKey();
       fatalKeyError = false;
+      apiKeyEntryForced = false;
       setGlobalBustrState({ lastApiError: null });
       refreshApiKeyState();
       refreshSettingsStatus();
