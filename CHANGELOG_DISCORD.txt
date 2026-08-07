@@ -6,6 +6,17 @@ contribution branch, proposed by The_Baron [1467784].
 
 ---
 
+## v2.15.2
+- [CHANGED] Cloud sync now works on Torn PDA, not just desktop - so your
+  bust history syncs across your phone and your computer. It was always
+  gated on the app providing cross-origin request support
+  (GM_xmlhttpRequest), which recent Torn PDA versions now do natively; the
+  old "desktop only" label was simply out of date. Enable it on both and
+  they merge to the same history, tied to your Torn ID. If an app or
+  manager still lacks the support, the option shows as unavailable rather
+  than failing silently. (No change to how sync works where it already
+  worked.)
+
 ## v2.15.1
 - [INTERNAL] Cloud sync now captures the full model-relevant picture, so
   the success model can actually be improved from real cross-user data.

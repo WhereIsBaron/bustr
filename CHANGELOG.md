@@ -4,6 +4,9 @@ Patch notes for BUSTR, a jail-busting helper userscript for Torn. Original scrip
 
 ---
 
+## v2.15.2
+- [CHANGED] **Cloud sync now works on Torn PDA, not just desktop - so your bust history syncs across your phone and your computer.** It was always gated on the app providing cross-origin request support (`GM_xmlhttpRequest`), which recent Torn PDA versions now do natively; the old "desktop only" label was simply out of date. Enable it on both and they merge to the same history, tied to your Torn ID. If an app or manager still lacks the support, the option shows as unavailable rather than failing silently. (No change to how sync works where it already worked.)
+
 ## v2.15.1
 - [INTERNAL] **Cloud sync now captures the full model-relevant picture, so the success model can actually be improved from real cross-user data.** Analysing synced outcomes showed the model over-predicts at low penalty and badly under-predicts at high penalty (many busts shown ~16% actually succeed ~70%), but the fix could not be validated because the stored data was missing pieces. Two enrichments fix that: (1) each logged outcome now also records the **level and skill-calibration** used for its prediction (`lvl`, `cal`), making every prediction exactly reconstructable; (2) for opted-in cloud users the synced snapshot now also includes your **script version, effective and self calibration, PDA flag, and the prediction-affecting settings** (perk calibration, self-calibration, any manual calibration override, play style) - the useful parts of the debug export, never the diagnostic/DOM parts and never your API key, name, ID, or faction.
 - [PRIVACY] The consent prompt, settings help, and listing/forum disclosures are updated to name exactly what is stored. This changes nothing about how predictions work on your device; it only lets the shared model learn. Turning sync off still deletes your cloud copy. See ROADMAP for the recalibration plan this unblocks.

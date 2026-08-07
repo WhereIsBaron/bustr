@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BUSTR: Jail Bust Assistant + PDA (Baron)
 // @namespace    http://torn.city.com.dot.com.com
-// @version      2.15.1
+// @version      2.15.2
 // @description  Shows your success odds on every jailed target, and how many busts you can make before failure gets likely
 // @author       Adobi & Ironhydedragon
 // @author       The_Baron [1467784] - added bust success % prediction, penalty weighting fitted to real outcomes, self-calibration from logged outcomes, a full settings panel, and reliability/storage hardening
@@ -42,7 +42,7 @@
   ////////////////////////////////////////////////////////////////////////////
 
   const DEBUG = false; // set true while debugging to re-enable console logs
-  const SCRIPT_VERSION = '2.15.1'; // keep in sync with the @version header above - stamped into diagnostic exports
+  const SCRIPT_VERSION = '2.15.2'; // keep in sync with the @version header above - stamped into diagnostic exports
 
   // Penalty model. Matches the documented in-game mechanic: each bust adds a
   // penalty that decays hyperbolically as P0 / (1 + c*t), losing half at 10h and
@@ -1112,9 +1112,12 @@
   // the model be tuned against real cross-user data. Read-only assistant still: it only
   // stores read-only data it already has, never the API key, and never acts in-game.
   //
-  // Desktop only for v1: every call goes through GM_xmlhttpRequest to sidestep
-  // torn.com's connect-src CSP (plain fetch to these hosts is blocked on-page). That
-  // grant is absent on some PDA shims, so the whole feature no-ops cleanly there.
+  // Every call goes through GM_xmlhttpRequest to sidestep torn.com's connect-src CSP
+  // (plain fetch to these hosts is blocked on-page; GM_xmlhttpRequest runs outside the
+  // page context, so it is not). This works on desktop managers AND on Torn PDA, which
+  // provides GM_xmlhttpRequest natively on recent versions and honours @connect. Where
+  // it is absent (older PDA builds / minimal managers), hasGMXhr is false and the whole
+  // feature no-ops cleanly - it is gated on the capability, not on desktop-vs-PDA.
   //
   // The API key is sent once, to the verification function, and is never stored in the
   // cloud. The auth SESSION (refresh token, uid, playerId) lives under CLOUD_AUTH_KEY
@@ -1125,7 +1128,7 @@
 
   function gmRequest(method, url, { headers = {}, body = null } = {}) {
     return new Promise((resolve, reject) => {
-      if (!hasGMXhr) { reject(new Error('cloud sync needs a desktop userscript manager')); return; }
+      if (!hasGMXhr) { reject(new Error('cloud sync needs cross-origin request support (GM_xmlhttpRequest)')); return; }
       GM_xmlhttpRequest({
         method, url, headers, data: body, timeout: 20000,
         onload: (r) => resolve({ status: r.status, text: r.responseText }),
@@ -2760,7 +2763,7 @@ body.bustr-no-success .bustr-success-chance {display: none;}
     const el = document.getElementById('bustr-cloud-status');
     if (!el) return;
     if (typeof msg === 'string') { el.textContent = msg; return; }
-    if (!hasGMXhr) { el.textContent = 'Unavailable here - cloud sync needs a desktop userscript manager.'; return; }
+    if (!hasGMXhr) { el.textContent = 'Unavailable here - this app or manager does not provide cross-origin requests. Works on desktop and recent Torn PDA.'; return; }
     if (CloudSync.enabled() && CloudSync.signedIn()) {
       el.textContent = 'On - synced as player ' + (CloudSync.playerId || '?') + '.';
     } else {
@@ -3035,7 +3038,7 @@ body.bustr-no-success .bustr-success-chance {display: none;}
     playstyle: ['Play style', 'Changes when the colours flip, not the numbers underneath. Safety uses your thresholds as set. Max count shifts the bands so you spend longer in the orange zone, which raises daily bust volume at the cost of more failures and more jail time. Nothing is ever busted for you either way.'],
     exportHelp: ['Debug export', 'Copies a snapshot for the script maintainer to debug with: your level, settings, detected perks, current penalty, calibration, and logged bust history. Your API key is never included, and this script never reads your username, ID, or faction.'],
     apikey: ['API key', 'BUSTR needs three things from Torn: your level, your bust perks, and your own bust history. "Create a key for BUSTR" opens Torn\'s API page with exactly those (' + API_KEY_SELECTIONS + ') pre-ticked and nothing else, so the key cannot touch your money, mail, or faction. Generate it there, paste it here. The key is stored on this device only and sent nowhere except Torn\'s own API. On PDA the app supplies its own key; saving one here overrides it.'],
-    cloudsync: ['Cloud sync', 'Off by default. When on, your bust history is backed up to a database and merged across your devices, tied to your verified Torn ID. What is stored: your bust stats (hardness, penalty, outcome, time), plus the context behind your predictions - your bust perks, level, calibration, BUSTR settings and script version - all so BUSTR\'s model can be improved across users. Never stored: your API key, name, ID, or faction. Turning it off deletes your cloud copy. Desktop only for now; on a phone or PDA the option is inactive.'],
+    cloudsync: ['Cloud sync', 'Off by default. When on, your bust history is backed up to a database and merged across your devices, tied to your verified Torn ID. What is stored: your bust stats (hardness, penalty, outcome, time), plus the context behind your predictions - your bust perks, level, calibration, BUSTR settings and script version - all so BUSTR\'s model can be improved across users. Never stored: your API key, name, ID, or faction. Turning it off deletes your cloud copy. Works on desktop and on Torn PDA (recent versions provide the cross-origin support it needs); where that is missing, the option shows as unavailable.'],
     reset: ['Reset settings', 'Puts every setting in this panel back to its default. Your saved API key and your logged bust history are both kept.'],
     wipe: ['Clear all data', 'Removes everything BUSTR has stored on this device: settings, saved API key, and your entire logged bust history. This cannot be undone.'],
   };
@@ -3176,7 +3179,7 @@ body.bustr-no-success .bustr-success-chance {display: none;}
       <div class="bustr-section">Cloud sync ${q('cloudsync')}</div>
       <div class="bustr-hint" id="bustr-cloud-status"></div>
       <div class="bustr-row"><label>Sync my bust history</label><input type="checkbox" id="bustr-set-cloudsync"></div>
-      <div class="bustr-hint">Off by default. Backs up your bust history plus the perks, level, calibration and BUSTR settings behind your predictions, tied to your Torn ID (used to improve BUSTR's model). Never your API key. Desktop only for now.</div>
+      <div class="bustr-hint">Off by default. Backs up your bust history plus the perks, level, calibration and BUSTR settings behind your predictions, tied to your Torn ID (used to improve BUSTR's model). Never your API key. Works on desktop and on Torn PDA.</div>
       <button type="button" class="bustr-btn" id="bustr-set-cloud-delete">Delete my cloud data</button>
       <hr>
 
