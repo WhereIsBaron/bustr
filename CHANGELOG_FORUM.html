@@ -1,4 +1,9 @@
 <p>Patch notes for BUSTR, a jail-busting helper userscript for Torn. Original script by Adobi &amp; Ironhydedragon (MIT licensed). Entries below cover this contribution branch, proposed by The_Baron [1467784].</p>
+<p><strong>v2.15.1</strong></p>
+<ul>
+<li>[INTERNAL] <strong>Each logged bust outcome now also records the level and skill-calibration used for its prediction</strong> (<code>lvl</code>, <code>cal</code>), on top of the existing hardness/penalty/result fields. No behaviour change and nothing new leaves your device beyond what opted-in cloud sync already sends. This exists because analysing real synced outcomes across users showed the success model over-predicts at low penalty and badly under-predicts at high penalty (many busts shown ~16% actually succeed ~70%), but the fix could not be validated: older records omit the level/calibration needed to recompute each prediction, and stored predictions mix pre/post-shrink displays. Capturing these two fields makes future outcomes fully reconstructable, so the penalty curve can be recalibrated and cross-validated properly. See ROADMAP.
+</li>
+</ul>
 <p><strong>v2.15.0</strong></p>
 <ul>
 <li>[FIX] <strong>BUSTR no longer makes your browser offer to autofill a password in Torn's text boxes.</strong> The settings panel's API-key field was a <code>type="password"</code> input, which made the browser's built-in password manager pop up its "Manage passwords" prompt and try to autofill nearby boxes (like the chat search) - it stopped only when BUSTR was disabled. The field now masks your key without being a password field, and tells third-party managers (LastPass, 1Password, Bitwarden, Dashlane) to skip it.

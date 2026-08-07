@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BUSTR: Jail Bust Assistant + PDA (Baron)
 // @namespace    http://torn.city.com.dot.com.com
-// @version      2.15.0
+// @version      2.15.1
 // @description  Shows your success odds on every jailed target, and how many busts you can make before failure gets likely
 // @author       Adobi & Ironhydedragon
 // @author       The_Baron [1467784] - added bust success % prediction, penalty weighting fitted to real outcomes, self-calibration from logged outcomes, a full settings panel, and reliability/storage hardening
@@ -42,7 +42,7 @@
   ////////////////////////////////////////////////////////////////////////////
 
   const DEBUG = false; // set true while debugging to re-enable console logs
-  const SCRIPT_VERSION = '2.15.0'; // keep in sync with the @version header above - stamped into diagnostic exports
+  const SCRIPT_VERSION = '2.15.1'; // keep in sync with the @version header above - stamped into diagnostic exports
 
   // Penalty model. Matches the documented in-game mechanic: each bust adds a
   // penalty that decays hyperbolically as P0 / (1 + c*t), losing half at 10h and
@@ -372,7 +372,7 @@
       bustPerks: [],                      // bust-related perk strings detected from the API
       lastProfileFetchMs: 0,              // when level/perks were last pulled from the API
       lastApiError: null,                 // {what, message, code, at} of the last failed API call, or null if the last one succeeded
-      outcomeLog: [],                     // logged bust attempts: {h, pred, pen, success, jailed, ts, m}, capped at OUTCOME_LOG_MAX
+      outcomeLog: [],                     // logged bust attempts: {h, pred, pen, success, jailed, lvl, cal, ts, m}, capped at OUTCOME_LOG_MAX
       selfCalibrationValue: null,         // last fitted calibration from outcomeLog, or null if not enough samples
     };
   }
@@ -1032,6 +1032,13 @@
       hardness,
       predictedChance,
       penaltyPct: calcPenaltyPct(getTimestampsArray()),
+      // Capture the exact model inputs used for the shown prediction, so a logged
+      // outcome is fully reconstructable later (recompute raw/shown from h+pen+lvl+cal).
+      // Cross-user analysis showed the stored `pred` alone is not enough - it mixes
+      // pre/post-shrink displays and omits level/calibration - which blocked a rigorous
+      // leave-one-out recalibration of the penalty curve. These two fields unblock it.
+      lvl: getPlayerLevel(),
+      cal: getSkillCalibration(),
       ts: Date.now(),
     };
   }
@@ -1064,6 +1071,8 @@
       pen: attempt.penaltyPct,
       success,
       jailed: success ? false : jailed,
+      lvl: attempt.lvl, // level + calibration used for the prediction, so raw/shown are
+      cal: attempt.cal, // exactly reconstructable for a future leave-one-out recalibration
       ts: Date.now(),
       m: OUTCOME_MODEL_VERSION, // marks this pen as recorded under the corrected penalty model
     });

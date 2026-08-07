@@ -4,6 +4,9 @@ Patch notes for BUSTR, a jail-busting helper userscript for Torn. Original scrip
 
 ---
 
+## v2.15.1
+- [INTERNAL] **Each logged bust outcome now also records the level and skill-calibration used for its prediction** (`lvl`, `cal`), on top of the existing hardness/penalty/result fields. No behaviour change and nothing new leaves your device beyond what opted-in cloud sync already sends. This exists because analysing real synced outcomes across users showed the success model over-predicts at low penalty and badly under-predicts at high penalty (many busts shown ~16% actually succeed ~70%), but the fix could not be validated: older records omit the level/calibration needed to recompute each prediction, and stored predictions mix pre/post-shrink displays. Capturing these two fields makes future outcomes fully reconstructable, so the penalty curve can be recalibrated and cross-validated properly. See ROADMAP.
+
 ## v2.15.0
 - [FIX] **BUSTR no longer makes your browser offer to autofill a password in Torn's text boxes.** The settings panel's API-key field was a `type="password"` input, which made the browser's built-in password manager pop up its "Manage passwords" prompt and try to autofill nearby boxes (like the chat search) - it stopped only when BUSTR was disabled. The field now masks your key without being a password field, and tells third-party managers (LastPass, 1Password, Bitwarden, Dashlane) to skip it.
 - [CHANGED] **Torn PDA no longer looks like it wants your API key twice.** On PDA the app already injects your key at install, so when that key is working BUSTR now just shows "API key is saved." (the same as a saved desktop key) instead of a second key box. If the injected key is missing, the wrong length, or being rejected by Torn, the entry stays open so you can fix it; and there's an opt-in "Use your own key instead" link if you ever want to override the PDA key with your own.

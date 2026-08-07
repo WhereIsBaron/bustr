@@ -6,6 +6,20 @@ contribution branch, proposed by The_Baron [1467784].
 
 ---
 
+## v2.15.1
+- [INTERNAL] Each logged bust outcome now also records the level and
+  skill-calibration used for its prediction (lvl, cal), on top of the
+  existing hardness/penalty/result fields. No behaviour change and nothing
+  new leaves your device beyond what opted-in cloud sync already sends.
+  This exists because analysing real synced outcomes across users showed
+  the success model over-predicts at low penalty and badly under-predicts
+  at high penalty (many busts shown ~16% actually succeed ~70%), but the
+  fix could not be validated: older records omit the level/calibration
+  needed to recompute each prediction, and stored predictions mix
+  pre/post-shrink displays. Capturing these two fields makes future
+  outcomes fully reconstructable, so the penalty curve can be recalibrated
+  and cross-validated properly. See ROADMAP.
+
 ## v2.15.0
 - [FIX] BUSTR no longer makes your browser offer to autofill a password
   in Torn's text boxes. The settings panel's API-key field was a password
