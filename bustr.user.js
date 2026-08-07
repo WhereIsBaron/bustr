@@ -1106,10 +1106,11 @@
   ////////////////////////////////////////////////////////////////////////////
   // Backs up state.outcomeLog to Firestore, keyed to the player's verified Torn id, so
   // bust history follows them across devices. For opted-in users it also stores a
-  // snapshot of their bust perks and level (profileSnapshot), so the model can later be
-  // tuned against real perk-and-outcome data. Read-only assistant still: this only ever
-  // stores read-only data it already fetches (bust log, perks, level), never the API key,
-  // and never performs a game action.
+  // snapshot of the model-relevant context (profileSnapshot): perks, level, script
+  // version, effective + self calibration, PDA flag, and prediction-affecting settings -
+  // the useful parts of the debug export, minus anything diagnostic/DOM/key. This lets
+  // the model be tuned against real cross-user data. Read-only assistant still: it only
+  // stores read-only data it already has, never the API key, and never acts in-game.
   //
   // Desktop only for v1: every call goes through GM_xmlhttpRequest to sidestep
   // torn.com's connect-src CSP (plain fetch to these hosts is blocked on-page). That
@@ -1266,13 +1267,30 @@
       // read and costs no write - the old code wrote on every single load.
       if (merged.length !== (cloud ? cloud.length : 0)) await fsPatch(a.uid, { log: merged, ...profileSnapshot() });
     }
-    // Extra per-user context backed up for opted-in users alongside the log: the
-    // detected bust perks (array of strings) and level. These let BUSTR's model be
-    // studied and tuned against real perk-and-outcome data across users. Written only
-    // while sync is on; the perk-based calibration a user sees is still computed locally.
+    // Extra per-user context backed up for opted-in users alongside the log, so the
+    // model can be studied and tuned against real cross-user data. This mirrors the
+    // model-relevant fields of the debug export (never the diagnostic/DOM/key parts):
+    // perks + level, the script version and effective calibration that produced the
+    // predictions, and the settings that change how predictions are derived. The
+    // perk-based calibration a user sees is still computed locally; this only informs
+    // the shared model. Written only while sync is on.
     function profileSnapshot() {
       const s = getGlobalBustrState();
-      return { perks: Array.isArray(s.bustPerks) ? s.bustPerks : [], level: getPlayerLevel() || 0 };
+      const us = getUserSettings();
+      return {
+        perks: Array.isArray(s.bustPerks) ? s.bustPerks : [],
+        level: getPlayerLevel() || 0,
+        sv: SCRIPT_VERSION,                 // which build produced these numbers (pre/post-shrink etc.)
+        cal: getSkillCalibration(),         // effective skill calibration currently in use
+        selfCalVal: (typeof s.selfCalibrationValue === 'number' ? s.selfCalibrationValue : null),
+        pda: isPDA(),                       // desktop vs PDA, for segmentation
+        settings: {                         // only the prediction-affecting settings
+          perkCal: !!us.usePerkCalibration,
+          selfCal: !!us.selfCalibrationEnabled,
+          calOverride: (typeof us.skillCalibrationOverride === 'number' ? us.skillCalibrationOverride : null),
+          playStyle: us.playStyle || null,
+        },
+      };
     }
     async function push() { const a = loadAuth(); if (a) await fsPatch(a.uid, { log: getGlobalBustrState().outcomeLog || [], ...profileSnapshot() }); }
     function pushSoon() {
@@ -2759,7 +2777,7 @@ body.bustr-no-success .bustr-success-chance {display: none;}
       back.innerHTML = `
         <div class="bustr-consent-card">
           <h3>Enable cloud sync?</h3>
-          <p>Backs up your bust history across your devices, tied to your Torn ID. Stored: your bust stats, your bust perks, and your level - the perks and level help improve BUSTR's model. Never your API key, name, or faction. Switching it off deletes your cloud copy.</p>
+          <p>Backs up your bust history across your devices, tied to your Torn ID. Stored: your bust stats, plus the perks, level, calibration, BUSTR settings and script version behind your predictions - all to improve BUSTR's model. Never your API key, name, or faction. Switching it off deletes your cloud copy.</p>
           <div class="bustr-consent-actions">
             <button type="button" class="bustr-btn" id="bustr-consent-cancel">Cancel</button>
             <button type="button" class="bustr-btn" id="bustr-consent-ok">Enable sync</button>
@@ -3017,7 +3035,7 @@ body.bustr-no-success .bustr-success-chance {display: none;}
     playstyle: ['Play style', 'Changes when the colours flip, not the numbers underneath. Safety uses your thresholds as set. Max count shifts the bands so you spend longer in the orange zone, which raises daily bust volume at the cost of more failures and more jail time. Nothing is ever busted for you either way.'],
     exportHelp: ['Debug export', 'Copies a snapshot for the script maintainer to debug with: your level, settings, detected perks, current penalty, calibration, and logged bust history. Your API key is never included, and this script never reads your username, ID, or faction.'],
     apikey: ['API key', 'BUSTR needs three things from Torn: your level, your bust perks, and your own bust history. "Create a key for BUSTR" opens Torn\'s API page with exactly those (' + API_KEY_SELECTIONS + ') pre-ticked and nothing else, so the key cannot touch your money, mail, or faction. Generate it there, paste it here. The key is stored on this device only and sent nowhere except Torn\'s own API. On PDA the app supplies its own key; saving one here overrides it.'],
-    cloudsync: ['Cloud sync', 'Off by default. When on, your bust history is backed up to a database and merged across your devices, tied to your verified Torn ID. What is stored: your bust stats (hardness, penalty, outcome, time), your bust perks, and your level - the perks and level help improve BUSTR\'s model across users. Never stored: your API key, name, ID, or faction. Turning it off deletes your cloud copy. Desktop only for now; on a phone or PDA the option is inactive.'],
+    cloudsync: ['Cloud sync', 'Off by default. When on, your bust history is backed up to a database and merged across your devices, tied to your verified Torn ID. What is stored: your bust stats (hardness, penalty, outcome, time), plus the context behind your predictions - your bust perks, level, calibration, BUSTR settings and script version - all so BUSTR\'s model can be improved across users. Never stored: your API key, name, ID, or faction. Turning it off deletes your cloud copy. Desktop only for now; on a phone or PDA the option is inactive.'],
     reset: ['Reset settings', 'Puts every setting in this panel back to its default. Your saved API key and your logged bust history are both kept.'],
     wipe: ['Clear all data', 'Removes everything BUSTR has stored on this device: settings, saved API key, and your entire logged bust history. This cannot be undone.'],
   };
@@ -3158,7 +3176,7 @@ body.bustr-no-success .bustr-success-chance {display: none;}
       <div class="bustr-section">Cloud sync ${q('cloudsync')}</div>
       <div class="bustr-hint" id="bustr-cloud-status"></div>
       <div class="bustr-row"><label>Sync my bust history</label><input type="checkbox" id="bustr-set-cloudsync"></div>
-      <div class="bustr-hint">Off by default. Backs up your bust history, bust perks, and level across devices, tied to your Torn ID (perks and level help improve BUSTR). Never your API key. Desktop only for now.</div>
+      <div class="bustr-hint">Off by default. Backs up your bust history plus the perks, level, calibration and BUSTR settings behind your predictions, tied to your Torn ID (used to improve BUSTR's model). Never your API key. Desktop only for now.</div>
       <button type="button" class="bustr-btn" id="bustr-set-cloud-delete">Delete my cloud data</button>
       <hr>
 
