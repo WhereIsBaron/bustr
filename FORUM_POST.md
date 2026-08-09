@@ -6,7 +6,7 @@ Keep the credit to Adobi & Ironhydedragon at the top and the fork version (v1.0.
 
 ---
 
-CURRENT VERSION: BUSTR v2.15.2
+CURRENT VERSION: BUSTR v2.16.0
 
 [ INSTALL - BUSTR: JAIL BUST ASSISTANT ]
 

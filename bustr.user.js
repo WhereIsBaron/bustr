@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BUSTR: Jail Bust Assistant + PDA (Baron)
 // @namespace    http://torn.city.com.dot.com.com
-// @version      2.15.2
+// @version      2.16.0
 // @description  Shows your success odds on every jailed target, and how many busts you can make before failure gets likely
 // @author       Adobi & Ironhydedragon
 // @author       The_Baron [1467784] - added bust success % prediction, penalty weighting fitted to real outcomes, self-calibration from logged outcomes, a full settings panel, and reliability/storage hardening
@@ -42,7 +42,7 @@
   ////////////////////////////////////////////////////////////////////////////
 
   const DEBUG = false; // set true while debugging to re-enable console logs
-  const SCRIPT_VERSION = '2.15.2'; // keep in sync with the @version header above - stamped into diagnostic exports
+  const SCRIPT_VERSION = '2.16.0'; // keep in sync with the @version header above - stamped into diagnostic exports
 
   // Penalty model. Matches the documented in-game mechanic: each bust adds a
   // penalty that decays hyperbolically as P0 / (1 + c*t), losing half at 10h and
@@ -133,6 +133,19 @@
   // W=2.15. Two independent datasets bracketing 2.0 is the strongest confirmation
   // this constant has had; the pooled optimum's gain over 2.0 is ~0.007 Brier, i.e.
   // noise. Do not chase it.
+
+  // Penalty SATURATION (v2.16.0). The linear -W*penalty term is correct up to moderate
+  // penalty but keeps subtracting without bound at high penalty, which floored every
+  // high-penalty prediction to the shrink floor (~16%). The first cross-user cloud data
+  // (134 reconstructable outcomes, 10 players) showed that is badly wrong: busts at
+  // 130-230% penalty actually succeed ~40-55%, and the current model scored Brier 0.30 -
+  // WORSE than predicting the base rate (0.24). Penalty's real effect plateaus. Capping
+  // the penalty% that feeds the term restores calibration: leave-one-out picked a cap of
+  // ~91-97% (stable with AND without the single heaviest player), dropping LOO Brier to
+  // ~0.23. Shipped at 95%. This also lets self-calibration work at high penalty again -
+  // before, it maxed out uselessly because the penalty term, which it cannot touch, was
+  // doing the flooring. REFINE the exact cap as more lvl/cal-stamped data accumulates.
+  const PENALTY_SATURATION_PCT = 95;
 
   // --- Prediction calibration shrink (v2.10.0) ---
   // The linear model DISCRIMINATES correctly - higher predictions really do succeed
@@ -768,7 +781,10 @@
   // failures happen, and far too harsh above it.
   function calcSuccessChanceRaw(hardness, penaltyPct, calibration) {
     const skill = getPlayerLevel() * calibration;
-    const effectivePenalty = PENALTY_WEIGHT * penaltyPct;
+    // Penalty's effect saturates: past PENALTY_SATURATION_PCT it stops biting harder
+    // (see the constant - fit by leave-one-out on real cross-user outcomes). Below it,
+    // the model is unchanged, so the well-calibrated low/mid-penalty range is preserved.
+    const effectivePenalty = PENALTY_WEIGHT * Math.min(penaltyPct, PENALTY_SATURATION_PCT);
     const raw = SUCCESS_A - (SUCCESS_B * 60 / skill) * hardness - effectivePenalty;
     // Clamp to [1,100] FIRST, then shrink toward the centre (see PRED_SHRINK_K).
     // Order matters: the raw linear score can be hundreds of points above 100 for an
@@ -1017,7 +1033,7 @@
         SUCCESS_A, SUCCESS_B,
         PENALTY_PER_BUST, PENALTY_WINDOW_HOURS, PENALTY_DECAY_C, PENALTY_PCT_ANCHOR, RECENT_HISTORY_WINDOW_DAYS,
         CAL_CEILING, CAL_FLOOR, CAL_NO_PERKS, FULL_BUST_SKILL_BONUS,
-        PENALTY_WEIGHT, PRED_SHRINK_K, PRED_SHRINK_CENTER, OUTCOME_MODEL_VERSION,
+        PENALTY_WEIGHT, PENALTY_SATURATION_PCT, PRED_SHRINK_K, PRED_SHRINK_CENTER, OUTCOME_MODEL_VERSION,
         SELF_CAL_MIN_SAMPLES, SELF_CAL_FLOOR, SELF_CAL_CEILING, SELF_CAL_STEP, OUTCOME_LOG_MAX,
       },
     };

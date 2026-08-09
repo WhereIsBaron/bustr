@@ -4,6 +4,10 @@ Patch notes for BUSTR, a jail-busting helper userscript for Torn. Original scrip
 
 ---
 
+## v2.16.0
+- [CHANGED] **Success % is now realistic at high penalty, instead of collapsing to ~16%.** The model used to subtract penalty without limit, so once your penalty climbed past ~100% almost every target showed the ~16% floor - even though those busts really succeed around 40-55%. This is the first change driven by real pooled outcome data across players: penalty's effect now saturates around 95% penalty (it still bites hard up to there, so low and mid penalty are unchanged). On the data this was fitted against, it cut the model's Brier error from 0.30 - which was worse than just guessing the average - to about 0.23, validated by leave-one-out cross-validation and stable with or without the single heaviest-penalty player. If you bust at high penalty, your numbers will look believable now.
+- [NOTE] This also lets **self-calibration work at high penalty again**. Before, a heavy high-penalty player's self-calibration would max out and still be stuck at 16%, because the flooring came from the penalty term, which self-calibration cannot adjust. With penalty saturating, self-calibration can once again reflect your real success. The saturation point (95%) is a first data-driven estimate and will be refined as more outcome data accumulates.
+
 ## v2.15.2
 - [CHANGED] **Cloud sync now works on Torn PDA, not just desktop - so your bust history syncs across your phone and your computer.** It was always gated on the app providing cross-origin request support (`GM_xmlhttpRequest`), which recent Torn PDA versions now do natively; the old "desktop only" label was simply out of date. Enable it on both and they merge to the same history, tied to your Torn ID. If an app or manager still lacks the support, the option shows as unavailable rather than failing silently. (No change to how sync works where it already worked.)
 
