@@ -6,6 +6,26 @@ contribution branch, proposed by The_Baron [1467784].
 
 ---
 
+## v2.17.0
+- [CHANGED] Your success % now reflects your own bust perks by default, so
+  it is tailored to you. Previously BUSTR assumed everyone was fully perked
+  until self-calibration had learned from 100+ of your own busts - so an
+  under-perked player saw the same over-optimistic odds as a maxed one.
+  Perk-based calibration is now on by default: it reads the bust perks on
+  your account and scales the success number accordingly, so fewer perks
+  correctly means lower odds and a fully-perked player is unchanged.
+  Validated against real pooled outcomes across players (improves accuracy
+  most at low and mid penalty); self-calibration still takes over once it
+  has enough of your own results. Turn it off in Settings for the plain
+  baseline. Existing users get it switched on once; turn it off and it
+  stays off.
+- [NOTE] It only adjusts the success %, never your penalty. Letting perks
+  also scale the penalty was deliberately NOT done - that puts calibration
+  in a denominator, the same coupling behind a past feedback-loop bug, and
+  it was not validated. Each player's numbers adjust to their own level,
+  perks, and learned results independently; one player's perks never change
+  another player's readings.
+
 ## v2.16.0
 - [CHANGED] Success % is now realistic at high penalty, instead of
   collapsing to ~16%. The model used to subtract penalty without limit, so

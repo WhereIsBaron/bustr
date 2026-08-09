@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BUSTR: Jail Bust Assistant + PDA (Baron)
 // @namespace    http://torn.city.com.dot.com.com
-// @version      2.16.0
+// @version      2.17.0
 // @description  Shows your success odds on every jailed target, and how many busts you can make before failure gets likely
 // @author       Adobi & Ironhydedragon
 // @author       The_Baron [1467784] - added bust success % prediction, penalty weighting fitted to real outcomes, self-calibration from logged outcomes, a full settings panel, and reliability/storage hardening
@@ -42,7 +42,7 @@
   ////////////////////////////////////////////////////////////////////////////
 
   const DEBUG = false; // set true while debugging to re-enable console logs
-  const SCRIPT_VERSION = '2.16.0'; // keep in sync with the @version header above - stamped into diagnostic exports
+  const SCRIPT_VERSION = '2.17.0'; // keep in sync with the @version header above - stamped into diagnostic exports
 
   // Penalty model. Matches the documented in-game mechanic: each bust adds a
   // penalty that decays hyperbolically as P0 / (1 + c*t), losing half at 10h and
@@ -372,7 +372,8 @@
         selfCalibrationEnabled: true, // use the learned-from-outcomes calibration once enough samples exist (default on: passive-only, see COMPLIANCE NOTE)
         playStyle: 'safety',           // 'safety' | 'maxcount' (display-only thresholds, see PLAYSTYLE_* constants)
         activeScope: 'always',         // 'always' | 'jailOnly' - suppresses nav badge/colours + background fetch off the jail page
-        usePerkCalibration: false,     // off by default (baseline 1.0); opt in to apply the perk-derived estimate
+        usePerkCalibration: true,      // ON by default (v2.17.0): scales the SUCCESS/skill term by your detected bust perks. Validated on cross-user cloud data to improve predictions (esp. low/mid penalty) with negligible downside; self-cal still overrides once it has enough samples, and the penalty term stays on baseline (see getPenaltySkillCalibration).
+        perkCalDefaultApplied: true,   // marks that the v2.17.0 "perk-cal on by default" migration has run; see loadGlobalBustrState. New installs start applied so a later manual opt-out is never re-flipped.
         cloudSyncEnabled: false,       // off by default; opt-in cloud backup of outcomeLog, gated behind an explicit consent prompt (see CloudSync)
       },
       penaltyScore: 0,
@@ -424,21 +425,21 @@
     return skillCalibration;
   }
 
-  // Skill calibration for the PENALTY term specifically (penaltyPctAt). This
-  // deliberately EXCLUDES the self-calibration auto-fit. That fitted value is a
-  // correction to the hardness/skill term, learned from binary win/loss outcomes;
-  // it is NOT a measurement of your true bust skill. penaltyPctAt puts calibration
-  // in the denominator (p0 = PENALTY_PCT_ANCHOR / (level * calibration)), so feeding
-  // the self-cal value in there coupled two things that must stay independent: when
-  // self-cal floored to 0.3 to explain hard-target failures, per-bust penalty tripled
-  // (1037/100 -> 1037/30), which pushed accumulated penalty past 300% and floored
-  // every on-screen success% at 1 regardless of target. That is a feedback loop, not
-  // a real reading. A manual override is honoured here because it is a deliberate
-  // user statement about their skill; otherwise use the perk-derived estimate.
+  // Skill calibration for the PENALTY term specifically (penaltyPctAt). Penalty puts
+  // calibration in the DENOMINATOR (p0 = PENALTY_PCT_ANCHOR / (level * calibration)), so
+  // any auto-fitted value fed here couples two things that must stay independent - the
+  // exact mechanism behind the v2.7.19 feedback loop, where a self-cal floor of 0.3
+  // tripled per-bust penalty (1037/100 -> 1037/30), pushed accumulated penalty past 300%
+  // and floored every on-screen success% at 1. It has always excluded self-cal for that
+  // reason; as of v2.17.0 it also excludes the perk-derived estimate. Perk calibration
+  // was validated (cross-user cloud data) ONLY for the success/skill term, with penalties
+  // held at the neutral baseline; letting perks scale this denominator too is unvalidated
+  // and would over-penalise under-perked players. So penalty uses the neutral baseline
+  // here - a manual override is still honoured as a deliberate user statement of skill.
   function getPenaltySkillCalibration() {
     const override = getUserSettings().skillCalibrationOverride;
     if (typeof override === 'number' && override > 0) return override;
-    return skillCalibration;
+    return CAL_CEILING;
   }
 
   function successChanceEnabled() {
@@ -508,6 +509,15 @@
     // state and diagnostic exports forever, implying features that no longer exist.
     delete GLOBAL_BUSTR_STATE.userSettings.ignorePerks;
     delete GLOBAL_BUSTR_STATE.userSettings.highPenaltyCaution;
+    // Migration: perk calibration became ON by default in v2.17.0 (validated on real
+    // cross-user data to improve success predictions). Turn it on ONCE for existing users
+    // so they get the benefit too, tracked by a flag so this never re-runs - if a user
+    // then turns it off, that choice sticks. Only the success/skill term is affected; the
+    // penalty term stays on baseline regardless (see getPenaltySkillCalibration).
+    if (GLOBAL_BUSTR_STATE.userSettings.perkCalDefaultApplied !== true) {
+      GLOBAL_BUSTR_STATE.userSettings.usePerkCalibration = true;
+      GLOBAL_BUSTR_STATE.userSettings.perkCalDefaultApplied = true;
+    }
     return true;
   }
   function deleteGlobalBustrState() {
@@ -3050,7 +3060,7 @@ body.bustr-no-success .bustr-success-chance {display: none;}
     model: ['Success % model', 'These change the actual predicted number. When more than one applies the priority is: manual override wins, then self-calibration once it has enough data, then the perk baseline.'],
     cal: ['Skill calibration', 'Scales how skilled BUSTR assumes you are at busting. 1.0 means the full perk stack the model was built on (faction Bust Skill plus all LAW courses). Lower it if you have fewer perks, roughly 0.70 for faction perks only. Leave blank for automatic. Worth knowing: this only scales the target-difficulty half of the model, so it cannot compensate for penalty, and forcing it very low to "fix" failures will distort the odds on easy targets.'],
     selfcal: ['Self-calibration', 'Learns your real success curve from your own results. It records which prisoner you clicked Bust on and whether it worked, entirely on your own machine. It stays inactive until 100 usable samples exist, because fitting on fewer was measured to make predictions worse rather than better. Only used when the manual override above is blank.'],
-    perkcal: ['Perk-based calibration', 'Off means the plain baseline of 1.0. On means BUSTR estimates your calibration from the bust perks it detects on your account. Torn does not publish how perks map to bust skill, so this is a grounded estimate rather than a measurement.'],
+    perkcal: ['Perk-based calibration', 'On by default. BUSTR estimates your skill from the bust perks it detects on your account, so an under-perked player is not shown the same odds as a fully-perked one. Validated against real pooled outcomes to improve the success % (most at low and mid penalty); it only affects the success number, never your penalty. Once self-calibration has enough of your own results it takes over. Turn this off to use the plain baseline of 1.0 instead. Torn does not publish how perks map to bust skill, so this is a grounded estimate rather than a measurement.'],
     playstyle: ['Play style', 'Changes when the colours flip, not the numbers underneath. Safety uses your thresholds as set. Max count shifts the bands so you spend longer in the orange zone, which raises daily bust volume at the cost of more failures and more jail time. Nothing is ever busted for you either way.'],
     exportHelp: ['Debug export', 'Copies a snapshot for the script maintainer to debug with: your level, settings, detected perks, current penalty, calibration, and logged bust history. Your API key is never included, and this script never reads your username, ID, or faction.'],
     apikey: ['API key', 'BUSTR needs three things from Torn: your level, your bust perks, and your own bust history. "Create a key for BUSTR" opens Torn\'s API page with exactly those (' + API_KEY_SELECTIONS + ') pre-ticked and nothing else, so the key cannot touch your money, mail, or faction. Generate it there, paste it here. The key is stored on this device only and sent nowhere except Torn\'s own API. On PDA the app supplies its own key; saving one here overrides it.'],
@@ -3403,12 +3413,19 @@ body.bustr-no-success .bustr-success-chance {display: none;}
   // (perks rarely change, so this avoids an API call on every page load). Calibration
   // is derived from the detected bust-skill bonus relative to a full 115% stack.
   // The skill-calibration setting (Settings panel) overrides it.
-  // Off by default: the perk-to-skill estimate is a grounded guess, not a
-  // published Torn formula (see the constants block at the top), so it only
-  // applies once explicitly opted into via usePerkCalibration. Otherwise it's
-  // the guide's plain baseline (1.0), same as a fully-perked tester.
+  // ON by default as of v2.17.0 (validated on cross-user cloud data). The perk-to-skill
+  // estimate is a grounded guess, not a published Torn formula (see the constants block),
+  // but it beats assuming every player is fully perked. Applies only to the success/skill
+  // term; the penalty term stays on baseline. Turned off, this returns the guide's plain
+  // baseline (1.0), same as a fully-perked tester.
   function calibrationFromBustPerksRespectingSettings(bustPerks) {
     if (!getUserSettings().usePerkCalibration) return CAL_CEILING;
+    // Parse-confidence guard: if a bust perk carries a % but we could not classify it as
+    // offense (a likely-missed skill perk in new or localised wording), the summed bonus
+    // is unreliable and could over-pessimise, so fall back to the neutral baseline rather
+    // than trust a shaky number. Perks with no % (utility perks) never affect the sum and
+    // do not trip this. Verified against real synced perks: nothing currently trips it.
+    if (unclassifiedBustPerks(bustPerks).some((p) => /[\d.]+\s*%/.test(p))) return CAL_CEILING;
     return calibrationFromPerks(bustPerks);
   }
 
