@@ -39,6 +39,8 @@ Findings (m:2 only):
 
 **What was done instead (v2.15.1):** every new outcome now also logs `lvl` + `cal` (the exact inputs used), so future records are fully reconstructable. These sync for opted-in users, so cross-user enriched data will accumulate.
 
+**Pipeline VERIFIED (2026-08-07):** `cloud/validate_enriched.js` recomputes each enriched record's prediction from its `h/pen/lvl/cal` and compares to the stored `pred` - 131/132 exact (99.2%), 1 off-by-one rounding, 0 real mismatches. So the captured data is internally consistent and trustworthy; the recalibration just needs volume. Latest aggregate: 16 users, 1311 m:2 records, but only ~132 enriched (lvl+cal) so far - the old ~1180 predate 2.15.1 and can't be backfilled. Data is well-spread (top user 28%). Signal unchanged and strong: ~40% of records floored to pred~16% but succeed ~55%; overall 46.5% predicted vs 59% actual. Re-run `cd cloud && node aggregate.js` (and `validate_enriched.js`) to track enriched-count growth; fit when it reaches a few hundred with good high-penalty coverage.
+
 **Next-session plan for the actual fix (once enough `lvl`/`cal`-stamped records exist):**
 1. Dump enriched m:2 records ({h, pen, success, lvl, cal}) - extend `aggregate.js` or a sibling script.
 2. Recompute current-model prediction per record from h/pen/lvl/cal (replicate calcSuccessChanceRaw exactly: skill=lvl*cal; raw=266.6-(0.28*60/skill)*h-2.0*pen; shrink 45+0.65*(clamp(raw,1,100)-45)).
