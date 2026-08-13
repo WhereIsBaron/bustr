@@ -6,6 +6,18 @@ contribution branch, proposed by The_Baron [1467784].
 
 ---
 
+## v2.17.1
+- [CHANGED] BUSTR now makes API calls only on the jail page - none
+  anywhere else on Torn. It was quietly fetching your bust log once on
+  every page you opened, which added up against your API log allowance
+  over a browsing session. But your bust log can only change when you
+  bust, and that only happens on the jail page - so off it the cached log
+  plus simple time-decay already give the correct penalty with no request
+  needed. The bust-budget badge still shows and decays on every page
+  exactly as before; it is just painted from cache now. On the jail page,
+  fetches are unchanged (at most once every 35 seconds). Thanks to mavri
+  [2402357] for spotting the wasted log calls.
+
 ## v2.17.0
 - [CHANGED] Your success % now reflects your own bust perks by default, so
   it is tailored to you. Previously BUSTR assumed everyone was fully perked

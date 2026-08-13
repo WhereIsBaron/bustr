@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BUSTR: Jail Bust Assistant + PDA (Baron)
 // @namespace    http://torn.city.com.dot.com.com
-// @version      2.17.0
+// @version      2.17.1
 // @description  Shows your success odds on every jailed target, and how many busts you can make before failure gets likely
 // @author       Adobi & Ironhydedragon
 // @author       The_Baron [1467784] - added bust success % prediction, penalty weighting fitted to real outcomes, self-calibration from logged outcomes, a full settings panel, and reliability/storage hardening
@@ -42,7 +42,7 @@
   ////////////////////////////////////////////////////////////////////////////
 
   const DEBUG = false; // set true while debugging to re-enable console logs
-  const SCRIPT_VERSION = '2.17.0'; // keep in sync with the @version header above - stamped into diagnostic exports
+  const SCRIPT_VERSION = '2.17.1'; // keep in sync with the @version header above - stamped into diagnostic exports
 
   // Penalty model. Matches the documented in-game mechanic: each bust adds a
   // penalty that decays hyperbolically as P0 / (1 + c*t), losing half at 10h and
@@ -246,7 +246,6 @@
   // Timing
   const DEFAULT_REFRESH_SECONDS = 30;        // tick cadence (local recompute runs every tick)
   const JAIL_MIN_FETCH_GAP_MS = 35 * 1000;   // min spacing between API fetches on the jail page (dodges Torn's ~30s cache)
-  const IDLE_REFETCH_MS = 30 * 60 * 1000;    // API refetch cadence when NOT on the jail page
   const FETCH_TIMEOUT_MS = 10000;
 
   // Storage keys
@@ -2452,11 +2451,13 @@ body.bustr-no-success .bustr-success-chance {display: none;}
     // no extra API calls, so it's safe to run every tick.
     if (onJail) renderJailRows();
     if (fatalKeyError || isLoading) return;
-    const since = Date.now() - getLastFetchTimestampMs();
+    // Only the jail page fetches the bust log. Busts can only happen on the jail page,
+    // so off it the log never changes - the cached timestamps plus time-decay already
+    // give the correct penalty with no API call. This keeps the budget badge live and
+    // decaying everywhere while making ZERO log requests as you navigate the rest of Torn.
     if (onJail) {
+      const since = Date.now() - getLastFetchTimestampMs();
       if (since >= JAIL_MIN_FETCH_GAP_MS) loadController();
-    } else if (since >= IDLE_REFETCH_MS) {
-      loadController();
     }
   }
 
@@ -2490,7 +2491,10 @@ body.bustr-no-success .bustr-success-chance {display: none;}
         if (!getRenderedView()) return;
         if (getMyViewportWidthType() !== getRenderedView()) {
           await initController();
-          await loadController();
+          // Repaint after a mobile/desktop switch. On the jail page fetch fresh; off it,
+          // repaint the badge from the cached log + decay - no API call (see masterTick).
+          if (window.location.pathname === '/jailview.php') await loadController();
+          else recalcLocally();
         }
       });
     } catch (err) {
@@ -3561,15 +3565,20 @@ body.bustr-no-success .bustr-success-chance {display: none;}
       // Penalty display and its data. In "always" mode this runs on every page, so the
       // nav badge shows and decays while you do other things; in jail-only mode it
       // only reaches here on the jail page.
-      recalcLocally();
-      // Belt and braces: loadController handles its own errors internally, but it
-      // must never be able to abort init even if that handling itself fails.
-      try {
-        await loadController();
-      } catch (err) {
-        console.error('[BUSTR] initial load failed (UI is already up)', err);
+      recalcLocally(); // paint the badge from cached log + decay - correct on every page, no API call
+      // Only the jail page hits the API. Off the jail page the cached log + decay above is
+      // already correct (busts only happen on jail), so we make NO log or profile request
+      // while navigating the rest of Torn. This used to fire a `log` API call on every
+      // single page load, which quietly ate the log quota over a browsing session.
+      // loadController still guards its own errors so a bad key can never abort init.
+      if (onJail) {
+        try {
+          await loadController();
+        } catch (err) {
+          console.error('[BUSTR] initial load failed (UI is already up)', err);
+        }
+        profileController(); // fire-and-forget: level + perks, once (daily-throttled inside)
       }
-      profileController(); // fire-and-forget: level + perks, once
 
       // Jail-page machinery only. hardnessScoreController self-guards to the jail page;
       // the bust observer arms only there (ensureBustObserver); and passive bust-click
