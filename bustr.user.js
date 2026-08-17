@@ -125,6 +125,11 @@
   const SC_GREEN_AT = 66;
   const SC_RED_BELOW = 33;
 
+  // Colour thresholds for the nav-badge PENALTY % (inverse sense: higher is worse).
+  // Below ORANGE = green, [ORANGE, RED) = amber, [RED, 100] = red, over 100 = critical.
+  const PEN_ORANGE_AT = 50;
+  const PEN_RED_AT = 85;
+
   // --- Penalty weighting (v2.8.0: replaces the old "high-penalty caution" guardrail) ---
   // The guide's formula is purely additive and counts penalty at face value:
   // success = A - hardness_term - penalty. Measured against real logged outcomes,
@@ -1884,6 +1889,13 @@ body.bustr-no-success .bustr-success-chance {display: none;}
    keeps the full readout - see #bustr-context, which carries no detail class. */
 body.bustr-badge-simple .bustr-badge-detail {display: none;}
 
+/* Penalty % colour by severity (inverse of the success-chance colours). */
+.bustr-pct-line.bustr-pen--green {color: ${greenApple}; opacity: 1;}
+.bustr-pct-line.bustr-pen--orange {color: ${orangeAmber}; opacity: 1;}
+.bustr-pct-line.bustr-pen--red {color: ${redMelon}; opacity: 1;}
+/* Over 100%: heavier, brighter red + glow so it reads as clearly more serious. */
+.bustr-pct-line.bustr-pen--critical {color: #ff2d2d; opacity: 1; font-weight: 800; text-shadow: 0 0 5px rgba(255, 45, 45, 0.55);}
+
 /* Quick bust/bail indication (opt-in). Mirrors TornTools: a "Q" badge on the
    icon, plus a highlight on the whole button so the active mode is unmistakable. */
 .user-info-list-wrap > li a[href*='step=breakout'],
@@ -2131,14 +2143,28 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
       const statsElArr = [...document.querySelectorAll(`.bustr-stats__${key}`)];
       statsElArr.forEach((el) => (el.textContent = value));
     }
-    // In compact mode the badge shows only "busts left"; keep the full breakdown
-    // one hover/tap away via the title tooltip so nothing is actually lost.
+    // In compact mode the badge shows "busts left" plus the penalty %; the raw
+    // score/threshold prefix is what hides. Keep the full breakdown one hover/tap
+    // away via the title tooltip so nothing is actually lost.
     const { penaltyScore, penaltyThreshold, availableBusts, penaltyPct } = statsObj;
     if (availableBusts !== undefined) {
       const title = `Busts you can still safely make: ${availableBusts}`
         + (penaltyScore !== undefined && penaltyThreshold !== undefined ? `\nPenalty score: ${penaltyScore} / ${penaltyThreshold}` : '')
         + (penaltyPct !== undefined ? `\nPenalty: ${penaltyPct}%` : '');
       document.querySelectorAll('.bustr-stats').forEach((el) => (el.title = title));
+    }
+    // Colour the penalty % by severity - the INVERSE of the success-chance colours:
+    // low penalty is green (good), rising through amber to red, and over 100% gets a
+    // heavier "critical" red so it reads as more serious than a high-but-under-100.
+    if (penaltyPct !== undefined) {
+      const cls = penaltyPct > 100 ? 'bustr-pen--critical'
+        : penaltyPct >= PEN_RED_AT ? 'bustr-pen--red'
+        : penaltyPct >= PEN_ORANGE_AT ? 'bustr-pen--orange'
+        : 'bustr-pen--green';
+      document.querySelectorAll('.bustr-pct-line').forEach((el) => {
+        el.classList.remove('bustr-pen--green', 'bustr-pen--orange', 'bustr-pen--red', 'bustr-pen--critical');
+        el.classList.add(cls);
+      });
     }
   }
 
@@ -2179,7 +2205,7 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
       const statsHTML = `
         <span class="amount___p8QZX bustr-stats">
           <span class="bustr-badge-detail"><span class="bustr-stats__penaltyScore">#</span> / <span class="bustr-stats__penaltyThreshold">#</span> : </span><span class="bustr-stats__availableBusts">#</span>
-          <span class="bustr-pct-line bustr-badge-detail"><span class="bustr-stats__penaltyPct">#</span>%</span>
+          <span class="bustr-pct-line"><span class="bustr-stats__penaltyPct">#</span>%</span>
         </span>`;
       jailLinkEl.insertAdjacentHTML('beforeend', statsHTML);
     } catch (err) {
@@ -2200,7 +2226,7 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     const jailLinkEl = document.querySelector('#nav-jail a');
     if (!jailLinkEl) return;
     const notificationHTML = `
-      <div class="mobileAmount___ua3ye bustr-stats bustr-mobile-badge"><span class="bustr-stats__availableBusts">#</span><span class="bustr-pct-line bustr-badge-detail"><span class="bustr-stats__penaltyPct">#</span>%</span></div>`;
+      <div class="mobileAmount___ua3ye bustr-stats bustr-mobile-badge"><span class="bustr-stats__availableBusts">#</span><span class="bustr-pct-line"><span class="bustr-stats__penaltyPct">#</span>%</span></div>`;
     jailLinkEl.insertAdjacentHTML('beforebegin', notificationHTML);
   }
 
@@ -3225,7 +3251,7 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     threshold: ['Custom threshold', 'Your penalty ceiling: how much bust penalty you can carry before BUSTR calls the budget spent. Leave it at 0 and BUSTR works this out from your own bust history, by finding the longest run of busts you have actually sustained. Set a number only if you want to override that estimate.'],
     refresh: ['Refresh rate', 'How often the on-screen numbers redraw, in seconds. This does NOT control how often BUSTR calls the Torn API. Those calls are throttled separately, to at most once every 35 seconds on the jail page and once every 30 minutes elsewhere, so lowering this costs you nothing in API usage. Minimum 15.'],
     scope: ['Active on', 'Anywhere: the nav badge and colours appear on every Torn page. Jail page only: hides them and pauses background checks everywhere except the jail page. Use it if the badge distracts you while doing other things.'],
-    badge: ['Compact nav badge', 'On (default): the Jail nav badge shows just one number - how many more busts you can safely make - colour-coded. Off: it shows the full readout (penalty score / threshold : busts, plus penalty %). Either way the full breakdown is always available by hovering the badge and in this panel\'s status line, so nothing is lost.'],
+    badge: ['Compact nav badge', 'On (default): the Jail nav badge shows how many more busts you can safely make (colour-coded by budget) plus your penalty %, which is coloured by severity - green when low, amber mid, red high, and a heavier red over 100%. Off: it also shows the raw penalty score / threshold prefix. Either way the full breakdown is always available by hovering the badge and in this panel\'s status line, so nothing is lost.'],
     display: ['Jail list display', 'These change only what the jail list shows and how it is sorted. The hardness score and the odds underneath are always calculated the same way regardless.'],
     hardness: ['Hardness number', 'Shows each prisoner\'s hardness score, which is their level multiplied by their remaining jail time plus three hours. Higher means harder to bust.'],
     sort: ['Sort easiest-first', 'Reorders the jail list so the easiest targets sit at the top. Torn\'s own order is by time remaining instead.'],
