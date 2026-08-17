@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BUSTR: Jail Bust Assistant + PDA (Baron)
 // @namespace    http://torn.city.com.dot.com.com
-// @version      2.18.0
+// @version      2.18.1
 // @description  Shows your success odds on every jailed target, and how many busts you can make before failure gets likely
 // @author       Adobi & Ironhydedragon
 // @author       The_Baron [1467784] - added bust success % prediction, penalty weighting fitted to real outcomes, self-calibration from logged outcomes, a full settings panel, and reliability/storage hardening
@@ -55,7 +55,7 @@
   ////////////////////////////////////////////////////////////////////////////
 
   const DEBUG = false; // set true while debugging to re-enable console logs
-  const SCRIPT_VERSION = '2.18.0'; // keep in sync with the @version header above - stamped into diagnostic exports
+  const SCRIPT_VERSION = '2.18.1'; // keep in sync with the @version header above - stamped into diagnostic exports
 
   // Penalty model. Matches the documented in-game mechanic: each bust adds a
   // penalty that decays hyperbolically as P0 / (1 + c*t), losing half at 10h and
@@ -2574,17 +2574,23 @@ body.bustr-no-success .bustr-success-chance {display: none;}
     applyQuickActions(); // keep the opt-in quick-bust/bail relabelling in sync every render pass
   }
 
-  // Quick Bust / Quick Bail. Relabels Torn's OWN bust/bail link to its
-  // no-confirmation variant (step=breakout -> step=breakout1, step=buy -> step=buy1)
-  // so the PLAYER's own manual click skips the confirm page. It NEVER clicks or
-  // fetches - one human click still equals one request. Off unless the user opts in.
-  // See the COMPLIANCE NOTE at the top of the file. Same mechanism TornTools ships.
+  // Quick Bust / Quick Bail. Sends the PLAYER's own click to Torn's
+  // no-confirmation variant of its bust/bail link (step=breakout -> breakout1,
+  // step=buy -> buy1) so the confirm page is skipped. It NEVER clicks or fetches
+  // - one human click still equals one request. Off unless the user opts in.
+  // See the COMPLIANCE NOTE at the top of the file.
+  //
+  // IMPORTANT - why we rewrite at CLICK TIME, not ahead of time: Torn's jail list
+  // is React-rendered from JSON and re-renders rows constantly (every list
+  // refresh, filter change, or tick), which wipes any '1' pre-written onto the
+  // href. Pre-writing therefore goes stale and the confirm page comes back
+  // intermittently. Instead we only paint the indicator here, and rewrite the
+  // clicked link inside a capture-phase click handler (installQuickClickHandler)
+  // the instant before navigation - immune to re-render races, and it never
+  // fights another script (e.g. TornTools) doing the same, since the rewrite is
+  // idempotent and we never strip anyone else's '1'.
   function setQuickLink(anchorEl, on) {
     if (!anchorEl) return;
-    const href = anchorEl.getAttribute('href') || '';
-    // Toggle a trailing '1' on the step token whether or not it's the last param.
-    const next = href.replace(/(step=(?:breakout|buy))1?(?=&|$)/, (_m, base) => base + (on ? '1' : ''));
-    if (next !== href) anchorEl.setAttribute('href', next);
     anchorEl.classList.toggle('bustr-quick-on', on); // highlights the whole button so the mode is obvious at a glance
     let badge = anchorEl.querySelector('.bustr-quick-q');
     if (on && !badge) {
@@ -2606,6 +2612,34 @@ body.bustr-no-success .bustr-success-chance {display: none;}
       setQuickLink(li.querySelector("a[href*='step=breakout']"), us.quickBust === true);
       setQuickLink(li.querySelector("a[href*='step=buy']"), us.quickBail === true);
     }
+  }
+
+  // Capture-phase click handler: the single source of truth for quick bust/bail.
+  // Fires on the PLAYER's real click, before Torn's own handlers (capture runs
+  // document -> target), and points that click at the no-confirm variant. Because
+  // it acts at click time it doesn't matter that React keeps re-rendering the
+  // links with a plain 'breakout' href - the rewrite is applied fresh every time.
+  // Installed once. Does nothing unless the matching toggle is on.
+  let quickClickInstalled = false;
+  function installQuickClickHandler() {
+    if (quickClickInstalled) return;
+    quickClickInstalled = true;
+    document.addEventListener('click', (e) => {
+      if (window.location.pathname !== '/jailview.php') return;
+      const us = getUserSettings();
+      if (us.quickBust !== true && us.quickBail !== true) return;
+      const anchorEl = e.target && e.target.closest
+        ? e.target.closest("a[href*='step=breakout'], a[href*='step=buy']")
+        : null;
+      if (!anchorEl) return;
+      const href = anchorEl.getAttribute('href') || '';
+      const isBust = /step=breakout/.test(href);
+      const on = isBust ? us.quickBust === true : us.quickBail === true;
+      if (!on) return;
+      // Idempotent: 'breakout'/'breakout1' both become 'breakout1'. Never strips.
+      const next = href.replace(/(step=(?:breakout|buy))1?(?=&|$)/, (_m, base) => base + '1');
+      if (next !== href) anchorEl.setAttribute('href', next);
+    }, true);
   }
 
   // Refresh control on the jail list header. Torn's jail list is React-rendered
@@ -2649,6 +2683,7 @@ body.bustr-no-success .bustr-success-chance {display: none;}
     if (window.location.pathname !== '/jailview.php') return;
     refetchIfStale(JAIL_MIN_FETCH_GAP_MS); // fresh numbers the moment you reach jail
     createHardnessScoreObserver();
+    installQuickClickHandler(); // race-proof quick bust/bail; safe no-op unless a toggle is on
     renderHardnessJailView();
     renderJailRefreshButton();
     applyJailVisibility();
