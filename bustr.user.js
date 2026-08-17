@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BUSTR: Jail Bust Assistant + PDA (Baron)
 // @namespace    http://torn.city.com.dot.com.com
-// @version      2.19.1
+// @version      2.20.0
 // @description  Shows your success odds on every jailed target, and how many busts you can make before failure gets likely
 // @author       Adobi & Ironhydedragon
 // @author       The_Baron [1467784] - added bust success % prediction, penalty weighting fitted to real outcomes, self-calibration from logged outcomes, a full settings panel, and reliability/storage hardening
@@ -55,7 +55,7 @@
   ////////////////////////////////////////////////////////////////////////////
 
   const DEBUG = false; // set true while debugging to re-enable console logs
-  const SCRIPT_VERSION = '2.19.1'; // keep in sync with the @version header above - stamped into diagnostic exports
+  const SCRIPT_VERSION = '2.20.0'; // keep in sync with the @version header above - stamped into diagnostic exports
 
   // Penalty model. Matches the documented in-game mechanic: each bust adds a
   // penalty that decays hyperbolically as P0 / (1 + c*t), losing half at 10h and
@@ -174,19 +174,27 @@
   //
   // Fix: after the raw score is computed and clamped, pull it toward a centre:
   //   shown = CENTER + K * (raw - CENTER)
-  // With K=0.65 / CENTER=45 the displayed range becomes roughly 16%..81%, which is
-  // honest: the best-looking targets in the data succeed ~85% of the time, not 100%,
-  // and the worst still succeed ~29%, not 1%. This deliberately means the script
-  // will never show 100% again - that is a feature, not a regression; 100% was a
-  // promise the data shows it could not keep.
+  //
+  // REFIT on cross-user cloud data (v2.20.0). The original K=0.65 was fitted on 81
+  // outcomes from a single player; the first real pooled dataset (1224 reconstructable
+  // lvl/cal-stamped outcomes across 26 players) shows that shrink was too weak. Under
+  // K=0.65 the top predicted bucket, shown at ~81%, actually succeeds only ~65%, and
+  // the model as a whole scored Brier 0.2455 - slightly WORSE than just predicting the
+  // pooled base rate (0.2436), i.e. no calibrated skill left despite correct ordering.
+  // Grid-searching K and CENTER to minimise pooled Brier lands on K~0.40, CENTER~44-45
+  // (the centre is essentially unchanged, so it stays at the deliberate 45; only the
+  // spread needed tightening). That drops Brier to 0.2350 and now beats the base rate.
+  // With K=0.40 / CENTER=45 the displayed range becomes roughly 27%..67%, which is what
+  // the data actually delivers: the best-looking targets succeed ~65%, not ~81%.
   //
   // Validation, because in-sample improvement alone is how the v2.8.0 raised-floor
-  // mistake happened (in-sample 0.136, leave-one-out 0.173 - pure overfitting):
-  // this one PASSES leave-one-out. Pooled Brier 0.2164 -> 0.1970 in-sample, and
-  // 0.2164 -> 0.2018 under leave-one-out with k and centre refit on every fold.
-  // Constants are FIXED here, not fitted per player: the whole lesson of v2.8.0 is
-  // that free parameters at n~40-80 buy noise, not accuracy.
-  const PRED_SHRINK_K = 0.65;    // fraction of the raw spread that survives
+  // mistake happened (in-sample 0.136, leave-one-out 0.173 - pure overfitting): this
+  // refit PASSES leave-one-out. Pooled Brier 0.2455 -> 0.2350 in-sample, and 0.2455 ->
+  // 0.2350 under leave-one-out with K and CENTER refit on every fold (the two are
+  // essentially identical, so it is fitting real curvature, not noise). Constants stay
+  // FIXED here, not fitted per player: the whole lesson of v2.8.0 is that free
+  // parameters buy noise, not accuracy. REFINE as more lvl/cal-stamped data accumulates.
+  const PRED_SHRINK_K = 0.40;    // fraction of the raw spread that survives (was 0.65; refit on pooled cloud data, v2.20.0)
   const PRED_SHRINK_CENTER = 45; // %, the pivot predictions are pulled toward
 
   // --- Self-calibration (learns YOUR real success curve from logged outcomes) ---
@@ -820,7 +828,7 @@
     // Order matters: the raw linear score can be hundreds of points above 100 for an
     // easy target, and shrinking before clamping would let that excess headroom leak
     // back into the displayed number, recreating exactly the overconfidence the
-    // shrink exists to correct. Post-shrink output spans roughly 16..81, so no
+    // shrink exists to correct. Post-shrink output spans roughly 27..67 (K=0.40), so no
     // second clamp is needed, but one is kept as a defensive invariant.
     //
     // (Historical note: a raised FLOOR was tried for the same symptom and rejected -

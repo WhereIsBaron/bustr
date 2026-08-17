@@ -6,6 +6,26 @@ contribution branch, proposed by The_Baron [1467784].
 
 ---
 
+## v2.20.0
+- [CHANGED] Success % is now better calibrated at the top end, using real
+  pooled outcomes across players. The model ranks targets correctly but was
+  over-promising on its best-looking ones: targets shown around 81% were
+  actually succeeding closer to 65%. That over-confidence was baked into a
+  "shrink" constant fitted long ago on just 81 busts from a single player.
+  Refitting it against the first proper cross-user dataset (1224 fully
+  reconstructable outcomes from 26 players) shows the numbers needed to be
+  pulled in harder. The high end now reads more like the mid-60s where the
+  data actually lands, and the very low predictions come up a little too. On
+  that data this cut the model's Brier error from 0.246 - fractionally worse
+  than just guessing the average - to 0.235, and it passes leave-one-out
+  cross-validation. If you bust a lot, your success % will look slightly more
+  conservative and match your real results more closely.
+- [NOTE] This only changes how the raw score is presented, not the ranking of
+  targets or anything about penalty. The displayed range is now roughly
+  27%-67% (it was about 16%-81%). Follows directly from v2.16.0's penalty-
+  saturation fix and the v2.15.1 enrichment that made outcomes reconstructable
+  - the "improve BUSTR from shared data" loop the cloud-sync consent promises.
+
 ## v2.17.1
 - [CHANGED] BUSTR now makes API calls only on the jail page - none
   anywhere else on Torn. It was quietly fetching your bust log once on
