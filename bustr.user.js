@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BUSTR: Jail Bust Assistant + PDA (Baron)
 // @namespace    http://torn.city.com.dot.com.com
-// @version      2.18.1
+// @version      2.19.0
 // @description  Shows your success odds on every jailed target, and how many busts you can make before failure gets likely
 // @author       Adobi & Ironhydedragon
 // @author       The_Baron [1467784] - added bust success % prediction, penalty weighting fitted to real outcomes, self-calibration from logged outcomes, a full settings panel, and reliability/storage hardening
@@ -55,7 +55,7 @@
   ////////////////////////////////////////////////////////////////////////////
 
   const DEBUG = false; // set true while debugging to re-enable console logs
-  const SCRIPT_VERSION = '2.18.1'; // keep in sync with the @version header above - stamped into diagnostic exports
+  const SCRIPT_VERSION = '2.19.0'; // keep in sync with the @version header above - stamped into diagnostic exports
 
   // Penalty model. Matches the documented in-game mechanic: each bust adds a
   // penalty that decays hyperbolically as P0 / (1 + c*t), losing half at 10h and
@@ -386,6 +386,7 @@
         selfCalibrationEnabled: true, // use the learned-from-outcomes calibration once enough samples exist (default on: passive-only, see COMPLIANCE NOTE)
         playStyle: 'safety',           // 'safety' | 'maxcount' (display-only thresholds, see PLAYSTYLE_* constants)
         activeScope: 'always',         // 'always' | 'jailOnly' - suppresses nav badge/colours + background fetch off the jail page
+        navBadgeDetail: 'simple',      // 'simple' = nav badge shows only "busts left" (default, decluttered); 'full' = score/threshold : busts + penalty %. Full breakdown is always in the hover tooltip + settings status regardless.
         usePerkCalibration: true,      // ON by default (v2.17.0): scales the SUCCESS/skill term by your detected bust perks. Validated on cross-user cloud data to improve predictions (esp. low/mid penalty) with negligible downside; self-cal still overrides once it has enough samples, and the penalty term stays on baseline (see getPenaltySkillCalibration).
         perkCalDefaultApplied: true,   // marks that the v2.17.0 "perk-cal on by default" migration has run; see loadGlobalBustrState. New installs start applied so a later manual opt-out is never re-flipped.
         cloudSyncEnabled: false,       // off by default; opt-in cloud backup of outcomeLog, gated behind an explicit consent prompt (see CloudSync)
@@ -1878,6 +1879,11 @@ body.bustr-inactive.bustr--red {--color: inherit;}
 body.bustr-no-hardness .bustr-hardness-score {display: none;}
 body.bustr-no-success .bustr-success-chance {display: none;}
 
+/* Compact nav badge: show only the "busts left" count; hide the penalty
+   score/threshold prefix and the % line. The mobile context menu (tap detail)
+   keeps the full readout - see #bustr-context, which carries no detail class. */
+body.bustr-badge-simple .bustr-badge-detail {display: none;}
+
 /* Quick bust/bail indication (opt-in). Mirrors TornTools: a "Q" badge on the
    icon, plus a highlight on the whole button so the active mode is unmistakable. */
 .user-info-list-wrap > li a[href*='step=breakout'],
@@ -2125,6 +2131,15 @@ body.bustr-no-success .bustr-success-chance {display: none;}
       const statsElArr = [...document.querySelectorAll(`.bustr-stats__${key}`)];
       statsElArr.forEach((el) => (el.textContent = value));
     }
+    // In compact mode the badge shows only "busts left"; keep the full breakdown
+    // one hover/tap away via the title tooltip so nothing is actually lost.
+    const { penaltyScore, penaltyThreshold, availableBusts, penaltyPct } = statsObj;
+    if (availableBusts !== undefined) {
+      const title = `Busts you can still safely make: ${availableBusts}`
+        + (penaltyScore !== undefined && penaltyThreshold !== undefined ? `\nPenalty score: ${penaltyScore} / ${penaltyThreshold}` : '')
+        + (penaltyPct !== undefined ? `\nPenalty: ${penaltyPct}%` : '');
+      document.querySelectorAll('.bustr-stats').forEach((el) => (el.title = title));
+    }
   }
 
   async function requireElement(selectors) {
@@ -2163,8 +2178,8 @@ body.bustr-no-success .bustr-success-chance {display: none;}
 
       const statsHTML = `
         <span class="amount___p8QZX bustr-stats">
-          <span class="bustr-stats__penaltyScore">#</span> / <span class="bustr-stats__penaltyThreshold">#</span> : <span class="bustr-stats__availableBusts">#</span>
-          <span class="bustr-pct-line"><span class="bustr-stats__penaltyPct">#</span>%</span>
+          <span class="bustr-badge-detail"><span class="bustr-stats__penaltyScore">#</span> / <span class="bustr-stats__penaltyThreshold">#</span> : </span><span class="bustr-stats__availableBusts">#</span>
+          <span class="bustr-pct-line bustr-badge-detail"><span class="bustr-stats__penaltyPct">#</span>%</span>
         </span>`;
       jailLinkEl.insertAdjacentHTML('beforeend', statsHTML);
     } catch (err) {
@@ -2185,7 +2200,7 @@ body.bustr-no-success .bustr-success-chance {display: none;}
     const jailLinkEl = document.querySelector('#nav-jail a');
     if (!jailLinkEl) return;
     const notificationHTML = `
-      <div class="mobileAmount___ua3ye bustr-stats bustr-mobile-badge"><span class="bustr-stats__availableBusts">#</span><span class="bustr-pct-line"><span class="bustr-stats__penaltyPct">#</span>%</span></div>`;
+      <div class="mobileAmount___ua3ye bustr-stats bustr-mobile-badge"><span class="bustr-stats__availableBusts">#</span><span class="bustr-pct-line bustr-badge-detail"><span class="bustr-stats__penaltyPct">#</span>%</span></div>`;
     jailLinkEl.insertAdjacentHTML('beforebegin', notificationHTML);
   }
 
@@ -2250,6 +2265,7 @@ body.bustr-no-success .bustr-success-chance {display: none;}
   async function initController() {
     try {
       renderBustrStylesheet();
+      applyBadgeDetail(); // set compact/full badge mode up front, before the first tick
 
       // Note: PDA's injected key is NOT copied into storage here any more. Storing
       // it would make it indistinguishable from a key the user chose, and getApiKey()
@@ -2472,6 +2488,8 @@ body.bustr-no-success .bustr-success-chance {display: none;}
 
     resyncSettingsFromStorage(); // pick up changes made in another tab before anything below reads settings
 
+    applyBadgeDetail(); // keep the compact/full nav badge in sync (cheap body-class toggle, every page)
+
     const onJail = window.location.pathname === '/jailview.php';
     if (SHOW_SETTINGS_PANEL) ensureSettingsUi(); // keep the trigger reachable regardless of scope
 
@@ -2673,6 +2691,12 @@ body.bustr-no-success .bustr-success-chance {display: none;}
     titleEl.appendChild(btn);
   }
 
+  // Compact vs full nav badge, toggled by a single body class (the badge exists on
+  // every Torn page, so this is a global toggle, not jail-only).
+  function applyBadgeDetail() {
+    document.body.classList.toggle('bustr-badge-simple', getUserSettings().navBadgeDetail !== 'full');
+  }
+
   // Toggle visibility of the hardness number and the success % via body classes.
   function applyJailVisibility() {
     document.body.classList.toggle('bustr-no-hardness', getUserSettings().showHardnessScore === false);
@@ -2715,6 +2739,7 @@ body.bustr-no-success .bustr-success-chance {display: none;}
 
   // Re-apply every setting to what's already on screen, no reload needed.
   function applySettings() {
+    applyBadgeDetail(); // reflect a compact/full badge toggle immediately
     recalcLocally(); // recomputes available busts + nav colour (limits, custom threshold)
     if (window.location.pathname === '/jailview.php') {
       applyJailVisibility();
@@ -2924,6 +2949,7 @@ body.bustr-no-success .bustr-success-chance {display: none;}
     byId('bustr-set-selfcal').checked = us.selfCalibrationEnabled === true;
     byId('bustr-set-playstyle').value = us.playStyle === 'maxcount' ? 'maxcount' : 'safety';
     byId('bustr-set-scope').value = us.activeScope === 'jailOnly' ? 'jailOnly' : 'always';
+    byId('bustr-set-badgesimple').checked = us.navBadgeDetail !== 'full';
     byId('bustr-set-useperkcal').checked = us.usePerkCalibration === true;
     const cloudBox = byId('bustr-set-cloudsync');
     if (cloudBox) cloudBox.checked = us.cloudSyncEnabled === true && CloudSync.signedIn();
@@ -3199,6 +3225,7 @@ body.bustr-no-success .bustr-success-chance {display: none;}
     threshold: ['Custom threshold', 'Your penalty ceiling: how much bust penalty you can carry before BUSTR calls the budget spent. Leave it at 0 and BUSTR works this out from your own bust history, by finding the longest run of busts you have actually sustained. Set a number only if you want to override that estimate.'],
     refresh: ['Refresh rate', 'How often the on-screen numbers redraw, in seconds. This does NOT control how often BUSTR calls the Torn API. Those calls are throttled separately, to at most once every 35 seconds on the jail page and once every 30 minutes elsewhere, so lowering this costs you nothing in API usage. Minimum 15.'],
     scope: ['Active on', 'Anywhere: the nav badge and colours appear on every Torn page. Jail page only: hides them and pauses background checks everywhere except the jail page. Use it if the badge distracts you while doing other things.'],
+    badge: ['Compact nav badge', 'On (default): the Jail nav badge shows just one number - how many more busts you can safely make - colour-coded. Off: it shows the full readout (penalty score / threshold : busts, plus penalty %). Either way the full breakdown is always available by hovering the badge and in this panel\'s status line, so nothing is lost.'],
     display: ['Jail list display', 'These change only what the jail list shows and how it is sorted. The hardness score and the odds underneath are always calculated the same way regardless.'],
     hardness: ['Hardness number', 'Shows each prisoner\'s hardness score, which is their level multiplied by their remaining jail time plus three hours. Higher means harder to bust.'],
     sort: ['Sort easiest-first', 'Reorders the jail list so the easiest targets sit at the top. Torn\'s own order is by time remaining instead.'],
@@ -3299,6 +3326,7 @@ body.bustr-no-success .bustr-success-chance {display: none;}
           <option value="jailOnly">Jail page only</option>
         </select>
       </div>
+      <div class="bustr-row"><label>Compact nav badge ${q('badge')}</label><input type="checkbox" id="bustr-set-badgesimple"></div>
       <hr>
 
       <div class="bustr-section">Jail list display ${q('display')}</div>
@@ -3432,6 +3460,10 @@ body.bustr-no-success .bustr-success-chance {display: none;}
     });
     byId('bustr-set-scope').addEventListener('change', (e) => {
       updateSetting('activeScope', e.target.value === 'jailOnly' ? 'jailOnly' : 'always');
+      applySettings();
+    });
+    byId('bustr-set-badgesimple').addEventListener('change', (e) => {
+      updateSetting('navBadgeDetail', e.target.checked ? 'simple' : 'full');
       applySettings();
     });
     byId('bustr-set-useperkcal').addEventListener('change', (e) => {

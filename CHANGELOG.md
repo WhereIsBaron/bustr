@@ -4,6 +4,9 @@ Patch notes for BUSTR, a jail-busting helper userscript for Torn. Original scrip
 
 ---
 
+## v2.19.0
+- [CHANGED] **The Jail nav badge is decluttered: by default it now shows just one number, how many more busts you can safely make, colour-coded.** It used to show the raw penalty score, your safe threshold, the bust count, and a penalty percentage all at once (e.g. "1285 / 1633 : 2" with "104%"), which was a lot to read at a glance on both desktop and PDA. The count is the number that actually drives the decision, and the colour already tells you safe/caution/stop, so that is what leads now. Nothing is lost: the full breakdown is one hover (or tap, via the mobile detail popup) away, and it is still in the settings status line. A new "Compact nav badge" toggle in Settings (default on) restores the full always-on readout if you prefer it.
+
 ## v2.18.1
 - [FIX] **Quick bust/bail is now reliable, and BUSTR's own jail refresh no longer breaks it.** Torn's jail list is React-rendered and rebuilds each bust/bail link constantly (on every refresh, filter change, or tick), which wiped the no-confirm marker written onto the link ahead of time - so the confirmation page came back intermittently, and always right after using BUSTR's refresh. Quick bust/bail now points your click at Torn's no-confirm link **at the moment you click it** (a capture-phase handler that runs before Torn's own click logic), so it can't be undone by a re-render and survives refreshes. It stays idempotent and never strips anyone else's marker, so it won't fight another script doing the same (e.g. TornTools). Still your own click, one request - no automation.
 
