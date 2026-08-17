@@ -2,6 +2,24 @@
 
 Read this first in a new session to resume with full context. Detailed version history lives in `CHANGELOG.md`; this file is just the "what's next" snapshot.
 
+## Releasing / auto-update (set up 2026-08-17, v2.20.1)
+The script declares `@updateURL`/`@downloadURL` pointing at the **`release` branch** raw URL
+(`https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js`). Userscript
+managers poll that branch, so users on a GitHub install auto-update from it.
+- **`main` is NOT the update source.** It auto-commits work-in-progress ("session progress"
+  commits) and auto-pushes, so it must never be what users pull, or half-finished edits would
+  ship. `release` only moves when you deliberately advance it.
+- **To publish a vetted build to auto-update users:** fast-forward `release` to the reviewed
+  commit on `main` and push it:
+  ```
+  git push origin main:release
+  ```
+  (Ships `main`'s current tip. To ship a specific older commit instead: `git push origin <sha>:release`.)
+- Bump `@version` + `SCRIPT_VERSION` + add a CHANGELOG entry BEFORE advancing `release`, or the
+  managers won't see a newer version and won't update.
+- **GreasyFork is a separate channel** (`greasyfork.org/en/scripts/585215`, still on 2.7.19): those
+  users update through GreasyFork, not this branch. A GreasyFork upload is still a manual step.
+
 ## Current state
 > **Check `bustr.user.js`'s own `@version` before trusting any version written here.**
 > This line said v2.10.0 while the file was already 2.12.2 (caught 2026-07-21). The same

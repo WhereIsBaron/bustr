@@ -6,6 +6,15 @@ contribution branch, proposed by The_Baron [1467784].
 
 ---
 
+## v2.20.1
+- [INTERNAL] The script now supports auto-updates for GitHub installs. It
+  declares @updateURL/@downloadURL pointing at a stable release branch, so a
+  copy installed from GitHub updates itself to vetted releases through your
+  userscript manager. The main branch auto-commits work in progress and is
+  deliberately NOT the update source, so half-finished changes never reach
+  anyone. No behaviour change; GreasyFork installs continue to update through
+  GreasyFork as before.
+
 ## v2.20.0
 - [CHANGED] Success % is now better calibrated at the top end, using real
   pooled outcomes across players. The model ranks targets correctly but was

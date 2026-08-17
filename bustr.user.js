@@ -1,8 +1,10 @@
 // ==UserScript==
 // @name         BUSTR: Jail Bust Assistant + PDA (Baron)
 // @namespace    http://torn.city.com.dot.com.com
-// @version      2.20.0
+// @version      2.20.1
 // @description  Shows your success odds on every jailed target, and how many busts you can make before failure gets likely
+// @updateURL    https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
+// @downloadURL  https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
 // @author       Adobi & Ironhydedragon
 // @author       The_Baron [1467784] - added bust success % prediction, penalty weighting fitted to real outcomes, self-calibration from logged outcomes, a full settings panel, and reliability/storage hardening
 // @match        https://www.torn.com/*
@@ -55,7 +57,7 @@
   ////////////////////////////////////////////////////////////////////////////
 
   const DEBUG = false; // set true while debugging to re-enable console logs
-  const SCRIPT_VERSION = '2.20.0'; // keep in sync with the @version header above - stamped into diagnostic exports
+  const SCRIPT_VERSION = '2.20.1'; // keep in sync with the @version header above - stamped into diagnostic exports
 
   // Penalty model. Matches the documented in-game mechanic: each bust adds a
   // penalty that decays hyperbolically as P0 / (1 + c*t), losing half at 10h and
