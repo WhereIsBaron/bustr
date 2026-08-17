@@ -24,12 +24,17 @@
 // COMPLIANCE NOTE (read this before adding anything new):
 // This script is an assistant, not a bot. It fetches your OWN data from the
 // official Torn API, reads what's already rendered on the page, and displays
-// numbers and colours. The RED LINE is: the script never performs a game
-// action for you. No `.click()`, no synthetic/dispatched events, no fetch/XHR
-// that busts or bails, no automated loop over targets - and no form submission
-// of anything but your own API key into this script's own storage. The
-// self-calibration feature below only listens for clicks the PLAYER makes
+// numbers and colours. The RED LINE is: the script never performs a GAME
+// ACTION for you - no busting, bailing, attacking, buying, etc. It never
+// clicks, fires, or fetches a bust/bail/attack endpoint, and never loops over
+// targets - and it submits no form but your own API key into its own storage.
+// The self-calibration feature below only listens for clicks the PLAYER makes
 // (passive observation) to log outcomes locally; it never simulates a bust.
+//
+// The Refresh control is on the SAFE side of that line: it reloads the jail
+// list you're already viewing by nudging Torn's OWN hash-based list loader
+// (one click of BUSTR's button = one list refresh). That's a read of a page
+// you're on, not a game action, and it touches no bust/bail control.
 //
 // Quick Bust / Quick Bail (opt-in, off by default) stay on the safe side of
 // that line: they only relabel the target of Torn's OWN bust/bail link
@@ -1873,16 +1878,22 @@ body.bustr-inactive.bustr--red {--color: inherit;}
 body.bustr-no-hardness .bustr-hardness-score {display: none;}
 body.bustr-no-success .bustr-success-chance {display: none;}
 
-/* Quick bust/bail "Q" badge on Torn's own bust/bail icon (opt-in). */
-.bustr-quick-q {
-  position: absolute; top: -4px; right: -4px; z-index: 2;
-  min-width: 12px; height: 12px; padding: 0 2px; box-sizing: border-box;
-  background: #8ca05a; color: #1a1a1a; border-radius: 6px;
-  font-size: 8px; font-weight: 700; line-height: 12px; text-align: center;
-  pointer-events: none; /* never intercept the player's click */
-}
+/* Quick bust/bail indication (opt-in). Mirrors TornTools: a "Q" badge on the
+   icon, plus a highlight on the whole button so the active mode is unmistakable. */
 .user-info-list-wrap > li a[href*='step=breakout'],
 .user-info-list-wrap > li a[href*='step=buy'] {position: relative;}
+.bustr-quick-q {
+  position: absolute; top: -5px; right: -5px; z-index: 2;
+  min-width: 13px; height: 13px; padding: 0 2px; box-sizing: border-box;
+  background: #8ca05a; color: #14180c; border: 1px solid #14180c; border-radius: 7px;
+  font-size: 9px; font-weight: 800; line-height: 12px; text-align: center;
+  pointer-events: none; /* never intercept the player's click */
+}
+.user-info-list-wrap > li a.bustr-quick-on {
+  box-shadow: 0 0 0 1px #8ca05a inset; border-radius: 4px;
+}
+.user-info-list-wrap > li a.bustr-quick-on .bust-icon,
+.user-info-list-wrap > li a.bustr-quick-on .bail-icon {filter: hue-rotate(55deg) saturate(1.3);}
 
 /* Refresh control on the jail list header. */
 .users-list-title .bustr-jail-refresh {
@@ -2574,6 +2585,7 @@ body.bustr-no-success .bustr-success-chance {display: none;}
     // Toggle a trailing '1' on the step token whether or not it's the last param.
     const next = href.replace(/(step=(?:breakout|buy))1?(?=&|$)/, (_m, base) => base + (on ? '1' : ''));
     if (next !== href) anchorEl.setAttribute('href', next);
+    anchorEl.classList.toggle('bustr-quick-on', on); // highlights the whole button so the mode is obvious at a glance
     let badge = anchorEl.querySelector('.bustr-quick-q');
     if (on && !badge) {
       badge = document.createElement('span');
@@ -2597,9 +2609,24 @@ body.bustr-no-success .bustr-success-chance {display: none;}
   }
 
   // Refresh control on the jail list header. Torn's jail list is React-rendered
-  // from an internal fetch, so a reliable in-place swap isn't practical; a plain
-  // reload is what the mature TornTools extension uses for exactly this reason.
-  // BUSTR re-decorates the list on load, so the overlay + quick badges reappear.
+  // from an internal JSON fetch, so BUSTR can't reliably swap the DOM itself.
+  // Instead we drive TORN'S OWN in-place refresh: Torn re-fetches the list when
+  // the URL hash's ?start value changes, and it dedupes on that value (so simply
+  // re-selecting the current page is a no-op). Toggling the hash to a sentinel
+  // and back to the current page's start forces Torn to re-fetch and re-render
+  // the list IN PLACE - no full page reload (verified against the live page).
+  // This only reads the jail list you're already viewing; it never touches a
+  // bust/bail control. BUSTR's observer re-decorates the fresh rows.
+  function refreshJailList() {
+    try {
+      const start = (window.location.hash.match(/start=(\d+)/) || [])[1] || '0';
+      window.location.hash = '#bustr-refresh';
+      setTimeout(() => { window.location.hash = '#start=' + start; }, 30);
+    } catch (err) {
+      window.location.reload(); // last-resort fallback
+    }
+  }
+
   function renderJailRefreshButton() {
     if (window.location.pathname !== '/jailview.php') return;
     const titleEl = document.querySelector('.users-list-title');
@@ -2608,7 +2635,7 @@ body.bustr-no-success .bustr-success-chance {display: none;}
     btn.className = 'bustr-jail-refresh';
     btn.textContent = '↻'; // clockwise arrow
     btn.title = 'Refresh the jail list';
-    btn.addEventListener('click', () => window.location.reload());
+    btn.addEventListener('click', refreshJailList);
     titleEl.appendChild(btn);
   }
 
