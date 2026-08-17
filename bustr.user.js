@@ -121,9 +121,16 @@
   // VALIDATED: a level-61 full-perk tester's measured fresh penalty was ~17%
   // (per the guide's own "recovery from one bust" chart). 1037/61 = 17.0% - matches.
   const PENALTY_PCT_ANCHOR = 1037;   // P0% * level (level-61 tester showed ~17% fresh)
-  // Colour thresholds for the per-target %
-  const SC_GREEN_AT = 66;
-  const SC_RED_BELOW = 33;
+  // Colour thresholds for the per-target %. Re-centred in v2.20.0 for the calibrated
+  // display range: the shrink refit (PRED_SHRINK_K 0.65 -> 0.40) compressed the shown
+  // range from ~16-81% to ~27-67%, so the old 66/33 bands left green glued to the 67%
+  // ceiling and red (below 33) almost unreachable. Anchored now to the real pooled base
+  // rate (~58% success): green = clearly better-than-average odds, red = clearly worse.
+  // On 1225 pooled outcomes these split the data green/orange/red with actual success
+  // ~65% / ~53% / ~26% - cleanly ordered and all three bands populated. Existing users
+  // still on the old defaults are moved once by a migration (see loadGlobalBustrState).
+  const SC_GREEN_AT = 60;
+  const SC_RED_BELOW = 40;
 
   // Colour thresholds for the nav-badge PENALTY % (inverse sense: higher is worse).
   // Below ORANGE = green, [ORANGE, RED) = amber, [RED, 100] = red, over 100 = critical.
@@ -545,6 +552,18 @@
     if (GLOBAL_BUSTR_STATE.userSettings.perkCalDefaultApplied !== true) {
       GLOBAL_BUSTR_STATE.userSettings.usePerkCalibration = true;
       GLOBAL_BUSTR_STATE.userSettings.perkCalDefaultApplied = true;
+    }
+    // Migration: the per-target colour bands were re-centred in v2.20.0 to fit the
+    // calibrated display range (see SC_GREEN_AT/SC_RED_BELOW). Move users ONCE, but only
+    // if they are still on the exact old defaults (66/33) - a deliberate custom setting is
+    // left untouched. Tracked by a flag so it never re-runs or fights a later user change.
+    if (GLOBAL_BUSTR_STATE.userSettings.scBandsRecenteredV220 !== true) {
+      const s = GLOBAL_BUSTR_STATE.userSettings;
+      if (s.successGreenAt === 66 && s.successRedBelow === 33) {
+        s.successGreenAt = SC_GREEN_AT;
+        s.successRedBelow = SC_RED_BELOW;
+      }
+      s.scBandsRecenteredV220 = true;
     }
     return true;
   }

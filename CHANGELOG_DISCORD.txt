@@ -20,6 +20,15 @@ contribution branch, proposed by The_Baron [1467784].
   than just guessing the average - to 0.235, and it passes leave-one-out
   cross-validation. If you bust a lot, your success % will look slightly more
   conservative and match your real results more closely.
+- [CHANGED] The green/orange/red colours on each target are re-centred to
+  match the new range, so they stay meaningful. Because the honest range is
+  now narrower (about 27%-67%), the old thresholds left green almost
+  unreachable and red almost never shown. Green now means a clearly better-
+  than-average target and red a clearly worse one, anchored to the real
+  average success rate; on the pooled data the three colours line up with
+  roughly 65% / 53% / 26% actual success. If you had already customised
+  these thresholds in Settings, your choices are kept; only the defaults
+  moved.
 - [NOTE] This only changes how the raw score is presented, not the ranking of
   targets or anything about penalty. The displayed range is now roughly
   27%-67% (it was about 16%-81%). Follows directly from v2.16.0's penalty-

@@ -32,10 +32,10 @@ Small settings panel, its own button in the nav bar with your live numbers on it
 
 **Why the numbers are different**
 
-The success model is built from the community Advanced Jail Bust Guide, then fitted and cross-validated against 81 of my own logged bust outcomes. Two things came out of that:
+The success model is built from the community Advanced Jail Bust Guide, then fitted and cross-validated against real logged bust outcomes: first 81 of my own, and since refined against 1,200+ pooled outcomes from other players running the script. Two things came out of that:
 
 - Penalty hurts about twice as much as the guide's formula says. Confirmed on two separate batches of outcomes that agreed independently.
-- **It will never show you 100%.** In the real data, targets shown 99% succeeded 85% of the time. So the displayed range is roughly 16% to 81%, because an honest 81% is worth more than a flattering 100%. If a number looks lower than you expected, that's the point.
+- **It will never show you 100%.** In the pooled outcome data even the best-looking targets succeed only around two-thirds of the time. So the displayed range is roughly 27% to 67%, because an honest 67% is worth more than a flattering 100%. If a number looks lower than you expected, that's the point.
 
 **Read-only, fully within the rules**
 
