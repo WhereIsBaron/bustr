@@ -4,6 +4,14 @@ Patch notes for BUSTR, a jail-busting helper userscript for Torn. Original scrip
 
 ---
 
+## v2.18.1
+- [FIX] **Quick bust/bail is now reliable, and BUSTR's own jail refresh no longer breaks it.** Torn's jail list is React-rendered and rebuilds each bust/bail link constantly (on every refresh, filter change, or tick), which wiped the no-confirm marker written onto the link ahead of time - so the confirmation page came back intermittently, and always right after using BUSTR's refresh. Quick bust/bail now points your click at Torn's no-confirm link **at the moment you click it** (a capture-phase handler that runs before Torn's own click logic), so it can't be undone by a re-render and survives refreshes. It stays idempotent and never strips anyone else's marker, so it won't fight another script doing the same (e.g. TornTools). Still your own click, one request - no automation.
+
+## v2.18.0
+- [NEW] **Optional Quick Bust / Quick Bail - opt-in, default OFF.** Turn either on in Settings and BUSTR sends your own click straight to Torn's no-confirmation variant of its bust/bail link, skipping the "are you sure?" step. A green "Q" badge and a highlight mark every button it applies to. BUSTR never clicks, fetches, or loops - you still press every button yourself, one click per bust, which is exactly Torn's stated rule (the same mechanism the long-standing TornTools extension uses). Leave it off to keep Torn's confirmation.
+- [NEW] **Jail list refresh button.** A refresh control on the jail list header reloads just the captive list in place - no full page reload - by nudging Torn's own hash-based list loader, then BUSTR re-decorates the fresh rows with your odds overlay. It only reads the list you're already viewing; it never touches a bust/bail control.
+- [NOTE] The compliance charter at the top of the script is restated to match: the red line is that BUSTR never performs a game action for you. Relabelling the target of your own click, and refreshing a list you're viewing, both stay on the safe side of it.
+
 ## v2.17.1
 - [CHANGED] **BUSTR now makes API calls only on the jail page - none anywhere else on Torn.** It was quietly fetching your bust log once on every page you opened, which added up against your API log allowance over a browsing session. But your bust log can only change when you bust, and that only happens on the jail page - so off it the cached log plus simple time-decay already give the correct penalty with no request needed. The bust-budget badge still shows and decays on every page exactly as before; it is just painted from cache now. On the jail page, fetches are unchanged (at most once every 35 seconds). Thanks to mavri [2402357] for spotting the wasted log calls.
 
