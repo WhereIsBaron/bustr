@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BUSTR: Jail Bust Assistant + PDA (Baron)
 // @namespace    http://torn.city.com.dot.com.com
-// @version      2.17.1
+// @version      2.18.0
 // @description  Shows your success odds on every jailed target, and how many busts you can make before failure gets likely
 // @author       Adobi & Ironhydedragon
 // @author       The_Baron [1467784] - added bust success % prediction, penalty weighting fitted to real outcomes, self-calibration from logged outcomes, a full settings panel, and reliability/storage hardening
@@ -22,16 +22,24 @@
 //
 // ---------------------------------------------------------------------------
 // COMPLIANCE NOTE (read this before adding anything new):
-// This script is a read-only assistant: it fetches your OWN data from the
+// This script is an assistant, not a bot. It fetches your OWN data from the
 // official Torn API, reads what's already rendered on the page, and displays
-// numbers and colours. It never performs a game action on your behalf - no
-// `.click()`, no synthetic/dispatched events, no form submission of anything
-// but your own API key into this script's own storage. The self-calibration
-// feature below listens for clicks the PLAYER makes (passive observation) to
-// log outcomes locally; it does not simulate or trigger any bust attempt.
-// Keep it that way. Anything that would press the bust button for the user
-// crosses from "assist tool" into "bot" under Torn's rules and must not be
-// added here.
+// numbers and colours. The RED LINE is: the script never performs a game
+// action for you. No `.click()`, no synthetic/dispatched events, no fetch/XHR
+// that busts or bails, no automated loop over targets - and no form submission
+// of anything but your own API key into this script's own storage. The
+// self-calibration feature below only listens for clicks the PLAYER makes
+// (passive observation) to log outcomes locally; it never simulates a bust.
+//
+// Quick Bust / Quick Bail (opt-in, off by default) stay on the safe side of
+// that line: they only relabel the target of Torn's OWN bust/bail link
+// (step=breakout -> step=breakout1, the no-confirmation variant) so that YOUR
+// manual click lands on it directly. The script performs no click and sends no
+// request - one deliberate human click still equals one request, which is
+// exactly Torn's stated rule. This is the same mechanism the long-standing,
+// widely-used TornTools extension has shipped for years. What must NEVER be
+// added is anything that presses the button, fetches the bust endpoint, or
+// walks the target list on its own - that is where "assist tool" becomes "bot".
 // ---------------------------------------------------------------------------
 
 (() => {
@@ -42,7 +50,7 @@
   ////////////////////////////////////////////////////////////////////////////
 
   const DEBUG = false; // set true while debugging to re-enable console logs
-  const SCRIPT_VERSION = '2.17.1'; // keep in sync with the @version header above - stamped into diagnostic exports
+  const SCRIPT_VERSION = '2.18.0'; // keep in sync with the @version header above - stamped into diagnostic exports
 
   // Penalty model. Matches the documented in-game mechanic: each bust adds a
   // penalty that decays hyperbolically as P0 / (1 + c*t), losing half at 10h and
@@ -364,6 +372,8 @@
         customPenaltyThreshold: 0, // 0 = use the prediction algorithm
         showHardnessScore: true,   // hardness number visible
         sortByHardness: true,      // independent: easiest-first sort (can be on/off regardless of the above)
+        quickBust: false,          // opt-in: relabel Torn's OWN bust link to its no-confirm variant (step=breakout1) so YOUR click skips the confirm page. Never clicks for you. See COMPLIANCE NOTE.
+        quickBail: false,          // opt-in: same for the bail link (buy -> buy1)
         showSuccessChance: SHOW_SUCCESS_CHANCE, // per-target % visible
         skillCalibrationOverride: SKILL_CALIBRATION_OVERRIDE, // null = auto from perks
         successGreenAt: SC_GREEN_AT,   // % at/above which a target is green
@@ -1863,6 +1873,24 @@ body.bustr-inactive.bustr--red {--color: inherit;}
 body.bustr-no-hardness .bustr-hardness-score {display: none;}
 body.bustr-no-success .bustr-success-chance {display: none;}
 
+/* Quick bust/bail "Q" badge on Torn's own bust/bail icon (opt-in). */
+.bustr-quick-q {
+  position: absolute; top: -4px; right: -4px; z-index: 2;
+  min-width: 12px; height: 12px; padding: 0 2px; box-sizing: border-box;
+  background: #8ca05a; color: #1a1a1a; border-radius: 6px;
+  font-size: 8px; font-weight: 700; line-height: 12px; text-align: center;
+  pointer-events: none; /* never intercept the player's click */
+}
+.user-info-list-wrap > li a[href*='step=breakout'],
+.user-info-list-wrap > li a[href*='step=buy'] {position: relative;}
+
+/* Refresh control on the jail list header. */
+.users-list-title .bustr-jail-refresh {
+  cursor: pointer; margin-left: 8px; color: #8ca05a; font-size: 14px;
+  line-height: 1; user-select: none; transition: transform 0.2s ease;
+}
+.users-list-title .bustr-jail-refresh:hover {transform: rotate(90deg); color: #b6cc7a;}
+
 /* Settings button + panel */
 /* Sidebar entry (primary). This is a clone of a native row (#nav-jail), and the
    goal is for text colour/font/weight to look IDENTICAL to sibling rows - see
@@ -2532,6 +2560,56 @@ body.bustr-no-success .bustr-success-chance {display: none;}
       else clearSortOrder(playerEl);
       renderSuccessChance(playerEl, calcSuccessChance(hardnessScore, penaltyPct));
     }
+    applyQuickActions(); // keep the opt-in quick-bust/bail relabelling in sync every render pass
+  }
+
+  // Quick Bust / Quick Bail. Relabels Torn's OWN bust/bail link to its
+  // no-confirmation variant (step=breakout -> step=breakout1, step=buy -> step=buy1)
+  // so the PLAYER's own manual click skips the confirm page. It NEVER clicks or
+  // fetches - one human click still equals one request. Off unless the user opts in.
+  // See the COMPLIANCE NOTE at the top of the file. Same mechanism TornTools ships.
+  function setQuickLink(anchorEl, on) {
+    if (!anchorEl) return;
+    const href = anchorEl.getAttribute('href') || '';
+    // Toggle a trailing '1' on the step token whether or not it's the last param.
+    const next = href.replace(/(step=(?:breakout|buy))1?(?=&|$)/, (_m, base) => base + (on ? '1' : ''));
+    if (next !== href) anchorEl.setAttribute('href', next);
+    let badge = anchorEl.querySelector('.bustr-quick-q');
+    if (on && !badge) {
+      badge = document.createElement('span');
+      badge.className = 'bustr-quick-q';
+      badge.textContent = 'Q';
+      badge.title = 'Quick action: your click skips the confirmation step';
+      anchorEl.appendChild(badge);
+    } else if (!on && badge) {
+      badge.remove();
+    }
+  }
+
+  function applyQuickActions() {
+    if (window.location.pathname !== '/jailview.php') return;
+    const us = getUserSettings();
+    const rows = document.querySelectorAll('ul.user-info-list-wrap > li');
+    for (const li of rows) {
+      setQuickLink(li.querySelector("a[href*='step=breakout']"), us.quickBust === true);
+      setQuickLink(li.querySelector("a[href*='step=buy']"), us.quickBail === true);
+    }
+  }
+
+  // Refresh control on the jail list header. Torn's jail list is React-rendered
+  // from an internal fetch, so a reliable in-place swap isn't practical; a plain
+  // reload is what the mature TornTools extension uses for exactly this reason.
+  // BUSTR re-decorates the list on load, so the overlay + quick badges reappear.
+  function renderJailRefreshButton() {
+    if (window.location.pathname !== '/jailview.php') return;
+    const titleEl = document.querySelector('.users-list-title');
+    if (!titleEl || titleEl.querySelector('.bustr-jail-refresh')) return;
+    const btn = document.createElement('span');
+    btn.className = 'bustr-jail-refresh';
+    btn.textContent = '↻'; // clockwise arrow
+    btn.title = 'Refresh the jail list';
+    btn.addEventListener('click', () => window.location.reload());
+    titleEl.appendChild(btn);
   }
 
   // Toggle visibility of the hardness number and the success % via body classes.
@@ -2545,6 +2623,7 @@ body.bustr-no-success .bustr-success-chance {display: none;}
     refetchIfStale(JAIL_MIN_FETCH_GAP_MS); // fresh numbers the moment you reach jail
     createHardnessScoreObserver();
     renderHardnessJailView();
+    renderJailRefreshButton();
     applyJailVisibility();
     renderJailRows();
     if (SHOW_SETTINGS_PANEL) ensureSettingsUi();
@@ -2773,6 +2852,8 @@ body.bustr-no-success .bustr-success-chance {display: none;}
     byId('bustr-set-refresh').value = us.statsRefreshRate || DEFAULT_REFRESH_SECONDS;
     byId('bustr-set-hardness').checked = us.showHardnessScore !== false;
     byId('bustr-set-sort').checked = us.sortByHardness !== false;
+    byId('bustr-set-quickbust').checked = us.quickBust === true;
+    byId('bustr-set-quickbail').checked = us.quickBail === true;
     byId('bustr-set-success').checked = us.showSuccessChance !== false;
     byId('bustr-set-scgreen').value = typeof us.successGreenAt === 'number' ? us.successGreenAt : SC_GREEN_AT;
     byId('bustr-set-scred').value = typeof us.successRedBelow === 'number' ? us.successRedBelow : SC_RED_BELOW;
@@ -3059,6 +3140,7 @@ body.bustr-no-success .bustr-success-chance {display: none;}
     display: ['Jail list display', 'These change only what the jail list shows and how it is sorted. The hardness score and the odds underneath are always calculated the same way regardless.'],
     hardness: ['Hardness number', 'Shows each prisoner\'s hardness score, which is their level multiplied by their remaining jail time plus three hours. Higher means harder to bust.'],
     sort: ['Sort easiest-first', 'Reorders the jail list so the easiest targets sit at the top. Torn\'s own order is by time remaining instead.'],
+    quickactions: ['Quick actions', 'Optional. When on, BUSTR relabels Torn\'s own bust/bail link to its no-confirmation variant (a "Q" appears on the icon) so your single click skips the "are you sure?" step. BUSTR never clicks or busts for you - you still press every button yourself, one click per bust. This is the same mechanism the long-running TornTools extension uses. Off by default; leave off if you prefer Torn\'s confirmation.'],
     success: ['Show success %', 'Shows your estimated chance of busting each prisoner, from their hardness and your current penalty.'],
     sccolour: ['Success % colours', 'Colour thresholds for the per-target percentage: green at or above the first number, red below the second, orange in between. Display only, they never change the percentage itself.'],
     model: ['Success % model', 'These change the actual predicted number. When more than one applies the priority is: manual override wins, then self-calibration once it has enough data, then the perk baseline.'],
@@ -3160,6 +3242,8 @@ body.bustr-no-success .bustr-success-chance {display: none;}
       <div class="bustr-section">Jail list display ${q('display')}</div>
       <div class="bustr-row"><label>Show hardness number ${q('hardness')}</label><input type="checkbox" id="bustr-set-hardness"></div>
       <div class="bustr-row"><label>Sort easiest-first ${q('sort')}</label><input type="checkbox" id="bustr-set-sort"></div>
+      <div class="bustr-row"><label>Quick bust (skip confirm) ${q('quickactions')}</label><input type="checkbox" id="bustr-set-quickbust"></div>
+      <div class="bustr-row"><label>Quick bail (skip confirm)</label><input type="checkbox" id="bustr-set-quickbail"></div>
       <div class="bustr-row"><label>Show success % ${q('success')}</label><input type="checkbox" id="bustr-set-success"></div>
       <div class="bustr-row"><label>Success green at % ${q('sccolour')}</label><input type="number" id="bustr-set-scgreen" min="0" max="100"></div>
       <div class="bustr-row"><label>Success red below %</label><input type="number" id="bustr-set-scred" min="0" max="100"></div>
@@ -3263,6 +3347,8 @@ body.bustr-no-success .bustr-success-chance {display: none;}
     byId('bustr-set-refresh').addEventListener('change', (e) => { updateSetting('statsRefreshRate', Math.max(15, numOr(e.target, DEFAULT_REFRESH_SECONDS))); startRefreshLoops(); });
     byId('bustr-set-hardness').addEventListener('change', (e) => { updateSetting('showHardnessScore', e.target.checked); applySettings(); });
     byId('bustr-set-sort').addEventListener('change', (e) => { updateSetting('sortByHardness', e.target.checked); applySettings(); });
+    byId('bustr-set-quickbust').addEventListener('change', (e) => { updateSetting('quickBust', e.target.checked); applyQuickActions(); });
+    byId('bustr-set-quickbail').addEventListener('change', (e) => { updateSetting('quickBail', e.target.checked); applyQuickActions(); });
     byId('bustr-set-success').addEventListener('change', (e) => { updateSetting('showSuccessChance', e.target.checked); applySettings(); });
     byId('bustr-set-scgreen').addEventListener('change', (e) => { updateSetting('successGreenAt', clampPct(numOr(e.target, SC_GREEN_AT))); applySettings(); });
     byId('bustr-set-scred').addEventListener('change', (e) => { updateSetting('successRedBelow', clampPct(numOr(e.target, SC_RED_BELOW))); applySettings(); });
