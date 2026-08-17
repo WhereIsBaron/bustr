@@ -26,6 +26,58 @@ contribution branch, proposed by The_Baron [1467784].
   saturation fix and the v2.15.1 enrichment that made outcomes reconstructable
   - the "improve BUSTR from shared data" loop the cloud-sync consent promises.
 
+## v2.19.0
+- [CHANGED] The Jail nav badge is decluttered: by default it now shows
+  just your busts-left count plus your penalty %, instead of four numbers
+  at once. It used to show the raw penalty score, your safe threshold, the
+  bust count, and the penalty percentage all together (e.g. "1285 / 1633 :
+  2" with "104%"), which was a lot to read at a glance on both desktop and
+  PDA. Now it leads with the two numbers that matter: how many more busts
+  you can safely make (colour-coded by budget), and your penalty %. The raw
+  score / threshold prefix is what gets tucked away. Nothing is lost: the
+  full breakdown is one hover (or tap, via the mobile detail popup) away,
+  and it is still in the settings status line. A new "Compact nav badge"
+  toggle in Settings (default on) restores the full always-on readout if
+  you prefer it.
+- [NEW] The penalty % is now colour-coded by severity, the inverse of the
+  success-chance colours. Low penalty shows green, rising through amber to
+  red, and once you go over 100% it turns a heavier, brighter red with a
+  glow so it reads as clearly more serious than a high-but-under-100%
+  penalty. This gives you an at-a-glance sense of how cooked you are
+  without reading the number.
+
+## v2.18.1
+- [FIX] Quick bust/bail is now reliable, and BUSTR's own jail refresh no
+  longer breaks it. Torn's jail list is React-rendered and rebuilds each
+  bust/bail link constantly (on every refresh, filter change, or tick),
+  which wiped the no-confirm marker written onto the link ahead of time -
+  so the confirmation page came back intermittently, and always right
+  after using BUSTR's refresh. Quick bust/bail now points your click at
+  Torn's no-confirm link at the moment you click it (a capture-phase
+  handler that runs before Torn's own click logic), so it can't be undone
+  by a re-render and survives refreshes. It stays idempotent and never
+  strips anyone else's marker, so it won't fight another script doing the
+  same (e.g. TornTools). Still your own click, one request - no automation.
+
+## v2.18.0
+- [NEW] Optional Quick Bust / Quick Bail - opt-in, default OFF. Turn either
+  on in Settings and BUSTR sends your own click straight to Torn's
+  no-confirmation variant of its bust/bail link, skipping the "are you
+  sure?" step. A green "Q" badge and a highlight mark every button it
+  applies to. BUSTR never clicks, fetches, or loops - you still press every
+  button yourself, one click per bust, which is exactly Torn's stated rule
+  (the same mechanism the long-standing TornTools extension uses). Leave it
+  off to keep Torn's confirmation.
+- [NEW] Jail list refresh button. A refresh control on the jail list header
+  reloads just the captive list in place - no full page reload - by nudging
+  Torn's own hash-based list loader, then BUSTR re-decorates the fresh rows
+  with your odds overlay. It only reads the list you're already viewing; it
+  never touches a bust/bail control.
+- [NOTE] The compliance charter at the top of the script is restated to
+  match: the red line is that BUSTR never performs a game action for you.
+  Relabelling the target of your own click, and refreshing a list you're
+  viewing, both stay on the safe side of it.
+
 ## v2.17.1
 - [CHANGED] BUSTR now makes API calls only on the jail page - none
   anywhere else on Torn. It was quietly fetching your bust log once on
