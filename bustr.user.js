@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BUSTR: Jail Bust Assistant + PDA (Baron)
 // @namespace    http://torn.city.com.dot.com.com
-// @version      2.19.0
+// @version      2.19.1
 // @description  Shows your success odds on every jailed target, and how many busts you can make before failure gets likely
 // @author       Adobi & Ironhydedragon
 // @author       The_Baron [1467784] - added bust success % prediction, penalty weighting fitted to real outcomes, self-calibration from logged outcomes, a full settings panel, and reliability/storage hardening
@@ -55,7 +55,7 @@
   ////////////////////////////////////////////////////////////////////////////
 
   const DEBUG = false; // set true while debugging to re-enable console logs
-  const SCRIPT_VERSION = '2.19.0'; // keep in sync with the @version header above - stamped into diagnostic exports
+  const SCRIPT_VERSION = '2.19.1'; // keep in sync with the @version header above - stamped into diagnostic exports
 
   // Penalty model. Matches the documented in-game mechanic: each bust adds a
   // penalty that decays hyperbolically as P0 / (1 + c*t), losing half at 10h and
@@ -1799,6 +1799,12 @@
 #bustr-context .bustr-stats {color: var(--color, inherit);}
 #nav-jail .bustr-stats span {margin-left: unset;}
 .bustr-pct-line {display: block; font-size: 0.78em; line-height: 1.2; opacity: 0.85;}
+/* Desktop nav badge has plenty of width, so keep the count and % on ONE line
+   instead of stacking. Mobile/PDA badge (#bustr-sidebar-btn, narrow column) and
+   the tap-detail popup keep the stacked layout - this is scoped to the desktop
+   nav link only. */
+#nav-jail a .bustr-stats {white-space: nowrap;}
+#nav-jail a .bustr-stats .bustr-pct-line {display: inline; margin-left: 6px; font-size: 0.85em;}
 
 /* PDA/mobile count badge. It exists in one of two places, styled differently:
 
