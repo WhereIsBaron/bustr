@@ -6,9 +6,9 @@ Keep the credit to Adobi & Ironhydedragon at the top and the fork version (v1.0.
 
 ---
 
-CURRENT VERSION: BUSTR v2.17.1
+CURRENT VERSION: BUSTR v2.20.2
 
-[ INSTALL - BUSTR: JAIL BUST ASSISTANT ]
+[INSTALL - BUSTR: JAIL BUST ASSISTANT](https://greasyfork.org/en/scripts/585973-bustr-jail-bust-assistant-pda-baron)
 
 CURRENTLY SUPPORTS PDA ✔
 
@@ -82,7 +82,7 @@ https://www.torn.com/preferences.php#tab=api?step=addNewKey&title=BUSTR&user=bas
 
 **Install**
 
-Desktop: install Tampermonkey or Violentmonkey, then open [ INSTALL LINK ] and click Install.
+Desktop: install Tampermonkey or Violentmonkey, then open https://greasyfork.org/en/scripts/585973-bustr-jail-bust-assistant-pda-baron and click Install.
 
 Torn PDA: Settings > User scripts > add the same link. If the PDA's own key doesn't work, the settings panel has an API key box you can paste your own into - it takes priority.
 
