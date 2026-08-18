@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BUSTR: Jail Bust Assistant + PDA (Baron)
 // @namespace    http://torn.city.com.dot.com.com
-// @version      2.20.2
+// @version      2.21.0
 // @description  Shows your success odds on every jailed target, and how many busts you can make before failure gets likely
 // @updateURL    https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
 // @downloadURL  https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
@@ -26,27 +26,35 @@
 // COMPLIANCE NOTE (read this before adding anything new):
 // This script is an assistant, not a bot. It fetches your OWN data from the
 // official Torn API, reads what's already rendered on the page, and displays
-// numbers and colours. The RED LINE is: the script never performs a GAME
-// ACTION for you - no busting, bailing, attacking, buying, etc. It never
-// clicks, fires, or fetches a bust/bail/attack endpoint, and never loops over
-// targets - and it submits no form but your own API key into its own storage.
-// The self-calibration feature below only listens for clicks the PLAYER makes
-// (passive observation) to log outcomes locally; it never simulates a bust.
+// numbers and colours. The RED LINE is AUTOMATION: BUSTR never acts without a
+// deliberate, per-action human press, never loops or auto-repeats, never fires
+// more than one request per tap, and never walks the target list on its own.
+// Every request it can make is one you triggered, to a page you are already on.
+// It submits no form but your own API key into its own storage. Self-calibration
+// only listens for clicks the PLAYER makes (passive observation) to log outcomes.
 //
 // The Refresh control is on the SAFE side of that line: it reloads the jail
 // list you're already viewing by nudging Torn's OWN hash-based list loader
-// (one click of BUSTR's button = one list refresh). That's a read of a page
-// you're on, not a game action, and it touches no bust/bail control.
+// (one press of BUSTR's button = one list refresh). That's a read of a page
+// you're on, not automation, and it touches no bust/bail control.
 //
-// Quick Bust / Quick Bail (opt-in, off by default) stay on the safe side of
-// that line: they only relabel the target of Torn's OWN bust/bail link
-// (step=breakout -> step=breakout1, the no-confirmation variant) so that YOUR
-// manual click lands on it directly. The script performs no click and sends no
-// request - one deliberate human click still equals one request, which is
-// exactly Torn's stated rule. This is the same mechanism the long-standing,
-// widely-used TornTools extension has shipped for years. What must NEVER be
-// added is anything that presses the button, fetches the bust endpoint, or
-// walks the target list on its own - that is where "assist tool" becomes "bot".
+// Quick Bust / Quick Bail (opt-in, off by default) only relabel the target of
+// Torn's OWN bust/bail link (step=breakout -> step=breakout1, the no-confirmation
+// variant) so YOUR manual click lands on it directly - BUSTR sends nothing. One
+// human click = one request. This is the mechanism the long-standing TornTools
+// extension has shipped for years.
+//
+// Easy Bust / Easy Bail (opt-in, off by default, behind a consent prompt) go one
+// step further: a single tap of the header button makes BUSTR send ONE bust/bail
+// request, for the one best target currently shown, to the same jailview.php page.
+// It is still one human tap = one request: no loop, no timer, no auto-repeat, no
+// queue - the button does nothing until you tap it again, and you choose whether
+// and when to tap. BUSTR only chooses WHICH shown target, never WHEN to act. This
+// is the same one-tap-one-request action the ReTorn extension ships, reviewed and
+// confirmed within Torn's 1-click-1-request / same-page rule by a Torn officer
+// (2026-08-18). What must NEVER be added is the automation line above: a timer or
+// loop that fires without a fresh press, multiple requests from one tap, or the
+// script deciding on its own to act - that is where "assist tool" becomes "bot".
 // ---------------------------------------------------------------------------
 
 (() => {
@@ -57,7 +65,7 @@
   ////////////////////////////////////////////////////////////////////////////
 
   const DEBUG = false; // set true while debugging to re-enable console logs
-  const SCRIPT_VERSION = '2.20.2'; // keep in sync with the @version header above - stamped into diagnostic exports
+  const SCRIPT_VERSION = '2.21.0'; // keep in sync with the @version header above - stamped into diagnostic exports
 
   // Penalty model. Matches the documented in-game mechanic: each bust adds a
   // penalty that decays hyperbolically as P0 / (1 + c*t), losing half at 10h and
@@ -401,6 +409,9 @@
         sortByHardness: true,      // independent: easiest-first sort (can be on/off regardless of the above)
         quickBust: false,          // opt-in: relabel Torn's OWN bust link to its no-confirm variant (step=breakout1) so YOUR click skips the confirm page. Never clicks for you. See COMPLIANCE NOTE.
         quickBail: false,          // opt-in: same for the bail link (buy -> buy1)
+        easyBust: false,           // opt-in (consent-gated): header button that fires ONE bust request for the best-odds shown target per tap. BUSTR sends the request. 1 tap = 1 request, no loop. See COMPLIANCE NOTE.
+        easyBail: false,           // opt-in (consent-gated): same, bails the cheapest shown inmate.
+        easyActionsConsented: false, // set true once the user accepts the Easy actions consent prompt (covers both)
         showSuccessChance: SHOW_SUCCESS_CHANCE, // per-target % visible
         skillCalibrationOverride: SKILL_CALIBRATION_OVERRIDE, // null = auto from perks
         successGreenAt: SC_GREEN_AT,   // % at/above which a target is green
@@ -1946,6 +1957,17 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
 }
 .users-list-title .bustr-jail-refresh:hover {transform: rotate(90deg); color: #b6cc7a;}
 
+/* Easy Bust / Easy Bail header buttons (opt-in; BUSTR fires one request per tap). */
+.users-list-title .bustr-easy-btn {
+  cursor: pointer; margin-left: 10px; font-size: 11px; font-weight: 700;
+  color: #14180c; background: #8ca05a; border: 1px solid #14180c; border-radius: 4px;
+  padding: 1px 7px; user-select: none; vertical-align: middle;
+}
+.users-list-title .bustr-easy-btn:hover {background: #b6cc7a;}
+.users-list-title .bustr-easy-btn.bustr-easy-busy {opacity: 0.45; pointer-events: none;}
+.users-list-title .bustr-easy-status {margin-left: 8px; font-size: 11px; color: #b6cc7a; vertical-align: middle;}
+.user-info-list-wrap > li.bustr-easy-done {opacity: 0.5;}
+
 /* Settings button + panel */
 /* Sidebar entry (primary). This is a clone of a native row (#nav-jail), and the
    goal is for text colour/font/weight to look IDENTICAL to sibling rows - see
@@ -2734,6 +2756,148 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     titleEl.appendChild(btn);
   }
 
+  // ----- Easy Bust / Easy Bail (opt-in, consent-gated) --------------------------
+  // One tap of the header button = ONE request for the single best target currently
+  // shown, sent by BUSTR to the same jailview.php page. Strictly 1 tap = 1 request:
+  // a guard blocks overlapping fires, there is no timer/loop/queue, and the button
+  // does nothing until you tap it again. BUSTR chooses only WHICH shown target;
+  // YOU choose whether and when to tap. See the COMPLIANCE NOTE at the top.
+  let easyActionInFlight = false;
+
+  // Pick the single best currently-shown target. Bust: highest BUSTR success %.
+  // Bail: lowest hardness (cheapest/easiest). Skips rows already actioned this
+  // render and rows without the matching link. Returns null if there is none.
+  function pickEasyTarget(kind) {
+    const linkSel = kind === 'bust' ? "a[href*='step=breakout']" : "a[href*='step=buy']";
+    const rows = [...document.querySelectorAll('ul.user-info-list-wrap > li')];
+    let best = null;
+    for (const li of rows) {
+      if (li.classList.contains('bustr-easy-done')) continue;
+      const link = li.querySelector(linkSel);
+      if (!link) continue;
+      const href = link.getAttribute('href') || '';
+      const idMatch = href.match(/XID=(\d+)/);
+      if (!idMatch) continue;
+      const successEl = li.querySelector('.bustr-success-chance');
+      const hardnessEl = li.querySelector('.bustr-hardness-score');
+      const success = successEl ? parseInt(successEl.textContent, 10) : NaN;
+      const hardness = hardnessEl ? parseInt(hardnessEl.textContent, 10) : NaN;
+      // Bust wants the highest success %; bail wants the lowest hardness (cheapest).
+      const rank = kind === 'bust'
+        ? (Number.isFinite(success) ? success : -1)
+        : (Number.isFinite(hardness) ? -hardness : -Infinity);
+      if (!best || rank > best.rank) {
+        best = {
+          li, href, rank,
+          success: Number.isFinite(success) ? success : null,
+          hardness: Number.isFinite(hardness) ? hardness : null,
+        };
+      }
+    }
+    return best;
+  }
+
+  // Classify Torn's JSON bust/bail response into success / jailed / clean-fail.
+  // Defensive: if the shape is unfamiliar, report not-success and don't guess jailed.
+  function classifyEasyResponse(kind, data) {
+    const text = ((data && (data.msg || data.text)) || '').toString();
+    const green = !!(data && data.color === 'green');
+    if (kind === 'bail') return { success: green || /bailed|released|out of jail/i.test(text), jailed: false, text };
+    const success = green || /you busted/i.test(text);
+    if (success) return { success: true, jailed: false, text };
+    const jailed = FAILURE_JAILED_PATTERNS.some((re) => re.test(text));
+    return { success: false, jailed, text };
+  }
+
+  // Fire exactly ONE request for the best shown target. Guarded so overlapping
+  // taps cannot double-fire; no retry, no loop, no chaining.
+  async function fireEasyAction(kind, btn, statusEl) {
+    if (easyActionInFlight) return;
+    const target = pickEasyTarget(kind);
+    if (!target) { if (statusEl) statusEl.textContent = 'No eligible targets'; return; }
+
+    const noConfirmHref = kind === 'bust'
+      ? target.href.replace(/step=breakout\b/, 'step=breakout1')
+      : target.href.replace(/step=buy\b/, 'step=buy1');
+    let url;
+    try { url = new URL(noConfirmHref, window.location.origin).href; }
+    catch (e) { if (statusEl) statusEl.textContent = 'Bad target link'; return; }
+
+    // Self-calibration: freeze the exact inputs so the outcome logs correctly.
+    // Only when self-cal is on and we actually have a numeric hardness (else the
+    // row would fail the m:2 validity filter and be dropped anyway).
+    if (kind === 'bust' && getUserSettings().selfCalibrationEnabled && Number.isFinite(target.hardness)) {
+      recordPendingAttempt(target.hardness, target.success);
+    }
+
+    easyActionInFlight = true;
+    if (btn) btn.classList.add('bustr-easy-busy');
+    if (statusEl) statusEl.textContent = kind === 'bust' ? 'Busting...' : 'Bailing...';
+    try {
+      const res = await fetch(url, {
+        method: 'GET',
+        credentials: 'same-origin',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      });
+      const raw = await res.text();
+      let data = null;
+      try { data = JSON.parse(raw); } catch (e) { data = null; }
+      const outcome = classifyEasyResponse(kind, data || {});
+
+      target.li.classList.add('bustr-easy-done'); // don't re-target the same person on the next tap
+      if (statusEl) statusEl.textContent = (outcome.text || (outcome.success ? 'Done' : 'No result')).slice(0, 70);
+
+      if (kind === 'bust') {
+        if (outcome.success) {
+          logOutcome(true); // consumes the pending attempt if self-cal recorded one
+          setPenaltyScore(getPenaltyScore() + PENALTY_PER_BUST);
+          setAvailableBusts(calcAvailableBusts(getPenaltyScore(), getPenaltyThreshold()));
+          renderBustrStats({ availableBusts: getAvailableBusts(), penaltyScore: getPenaltyScore() });
+          renderBustrColorClass(getAvailableBusts());
+        } else if (data) {
+          logOutcome(false, { jailed: outcome.jailed });
+        }
+        scheduleGroundTruthResync(); // correct the budget from the real bust log shortly after
+      }
+    } catch (err) {
+      console.error('[BUSTR] Easy action request failed', err);
+      if (statusEl) statusEl.textContent = 'Request failed';
+    } finally {
+      easyActionInFlight = false;
+      if (btn) btn.classList.remove('bustr-easy-busy');
+    }
+  }
+
+  // Add / remove the Easy Bust / Easy Bail header buttons to match the toggles.
+  function renderEasyActionButtons() {
+    if (window.location.pathname !== '/jailview.php') return;
+    const titleEl = document.querySelector('.users-list-title');
+    if (!titleEl) return;
+    const us = getUserSettings();
+    const ensureStatus = () => {
+      let s = titleEl.querySelector('.bustr-easy-status');
+      if (!s) { s = document.createElement('span'); s.className = 'bustr-easy-status'; titleEl.appendChild(s); }
+      return s;
+    };
+    const sync = (kind, label, want) => {
+      const cls = 'bustr-easy-' + kind;
+      let b = titleEl.querySelector('.' + cls);
+      if (want && !b) {
+        b = document.createElement('span');
+        b.className = 'bustr-easy-btn ' + cls;
+        b.textContent = label;
+        b.title = 'One tap = one ' + kind + ' request for the ' +
+          (kind === 'bust' ? 'best-odds' : 'cheapest') + ' shown target (BUSTR sends it)';
+        b.addEventListener('click', () => fireEasyAction(kind, b, ensureStatus()));
+        titleEl.appendChild(b);
+      } else if (!want && b) {
+        b.remove();
+      }
+    };
+    sync('bust', 'Easy Bust', us.easyBust === true);
+    sync('bail', 'Easy Bail', us.easyBail === true);
+  }
+
   // Compact vs full nav badge, toggled by a single body class (the badge exists on
   // every Torn page, so this is a global toggle, not jail-only).
   function applyBadgeDetail() {
@@ -2753,6 +2917,7 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     installQuickClickHandler(); // race-proof quick bust/bail; safe no-op unless a toggle is on
     renderHardnessJailView();
     renderJailRefreshButton();
+    renderEasyActionButtons();
     applyJailVisibility();
     renderJailRows();
     if (SHOW_SETTINGS_PANEL) ensureSettingsUi();
@@ -2984,6 +3149,8 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     byId('bustr-set-sort').checked = us.sortByHardness !== false;
     byId('bustr-set-quickbust').checked = us.quickBust === true;
     byId('bustr-set-quickbail').checked = us.quickBail === true;
+    byId('bustr-set-easybust').checked = us.easyBust === true;
+    byId('bustr-set-easybail').checked = us.easyBail === true;
     byId('bustr-set-success').checked = us.showSuccessChance !== false;
     byId('bustr-set-scgreen').value = typeof us.successGreenAt === 'number' ? us.successGreenAt : SC_GREEN_AT;
     byId('bustr-set-scred').value = typeof us.successRedBelow === 'number' ? us.successRedBelow : SC_RED_BELOW;
@@ -3034,6 +3201,43 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
       back.querySelector('#bustr-consent-cancel').addEventListener('click', () => done(false));
       back.querySelector('#bustr-consent-ok').addEventListener('click', () => done(true));
     });
+  }
+
+  // Consent before the FIRST Easy Bust/Bail enable. These fire real requests (unlike
+  // Quick actions, which only relabel your click), so the difference is spelled out.
+  // One consent covers both toggles; resolves true only on "Enable".
+  function showEasyActionsConsent() {
+    return new Promise((resolve) => {
+      const back = document.createElement('div');
+      back.className = 'bustr-consent-backdrop';
+      back.innerHTML = `
+        <div class="bustr-consent-card">
+          <h3>Enable Easy Bust / Easy Bail?</h3>
+          <p>Unlike Quick actions (which only relabel your own click), this makes BUSTR <b>send the bust/bail request itself</b> when you tap the header button. It is still ONE tap = ONE request, to the same jail page, with no looping or auto-repeat - the button does nothing until you tap it again, and BUSTR only picks which shown target. You decide whether and when to tap. Use at your own discretion.</p>
+          <div class="bustr-consent-actions">
+            <button type="button" class="bustr-btn" id="bustr-consent-cancel">Cancel</button>
+            <button type="button" class="bustr-btn" id="bustr-consent-ok">Enable</button>
+          </div>
+        </div>`;
+      const done = (val) => { try { back.remove(); } catch (e) {} resolve(val); };
+      back.addEventListener('click', (e) => { if (e.target === back) done(false); });
+      document.body.appendChild(back);
+      back.querySelector('#bustr-consent-cancel').addEventListener('click', () => done(false));
+      back.querySelector('#bustr-consent-ok').addEventListener('click', () => done(true));
+    });
+  }
+
+  // Turning either Easy toggle ON is gated on a one-time consent (tracked by
+  // easyActionsConsented). Reverts the checkbox if consent is declined.
+  async function handleEasyToggle(key, checkbox) {
+    const on = checkbox.checked;
+    if (on && getUserSettings().easyActionsConsented !== true) {
+      const ok = await showEasyActionsConsent();
+      if (!ok) { checkbox.checked = false; updateSetting(key, false); renderEasyActionButtons(); return; }
+      updateSetting('easyActionsConsented', true);
+    }
+    updateSetting(key, on);
+    renderEasyActionButtons();
   }
 
   function ensureSettingsUi() {
@@ -3273,6 +3477,7 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     hardness: ['Hardness number', 'Shows each prisoner\'s hardness score, which is their level multiplied by their remaining jail time plus three hours. Higher means harder to bust.'],
     sort: ['Sort easiest-first', 'Reorders the jail list so the easiest targets sit at the top. Torn\'s own order is by time remaining instead.'],
     quickactions: ['Quick actions', 'Optional. When on, BUSTR relabels Torn\'s own bust/bail link to its no-confirmation variant (the button gets a green highlight) so your single click skips the "are you sure?" step. BUSTR never clicks or busts for you - you still press every button yourself, one click per bust. This is the same mechanism the long-running TornTools extension uses. If you run TornTools, turn its own Quick Bust off to use this - the two act on the same link and conflict. Off by default; leave off if you prefer Torn\'s confirmation.'],
+    easyactions: ['Easy actions', 'Optional and OFF by default. Adds a one-tap "Easy Bust" / "Easy Bail" button to the jail list header. Unlike Quick actions (which only relabel your own click), tapping this makes BUSTR send the request itself for the single best shown target - bust picks the highest success %, bail picks the cheapest. It is strictly one tap = one request, to the same jail page, with no looping or auto-repeat: the button does nothing until you tap it again, and you decide when to tap. Enabling asks for a one-time confirmation. Use at your own discretion.'],
     success: ['Show success %', 'Shows your estimated chance of busting each prisoner, from their hardness and your current penalty.'],
     sccolour: ['Success % colours', 'Colour thresholds for the per-target percentage: green at or above the first number, red below the second, orange in between. Display only, they never change the percentage itself.'],
     model: ['Success % model', 'These change the actual predicted number. When more than one applies the priority is: manual override wins, then self-calibration once it has enough data, then the perk baseline.'],
@@ -3377,6 +3582,8 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
       <div class="bustr-row"><label>Sort easiest-first ${q('sort')}</label><input type="checkbox" id="bustr-set-sort"></div>
       <div class="bustr-row"><label>Quick bust (skip confirm) ${q('quickactions')}</label><input type="checkbox" id="bustr-set-quickbust"></div>
       <div class="bustr-row"><label>Quick bail (skip confirm)</label><input type="checkbox" id="bustr-set-quickbail"></div>
+      <div class="bustr-row"><label>Easy bust (BUSTR fires it) ${q('easyactions')}</label><input type="checkbox" id="bustr-set-easybust"></div>
+      <div class="bustr-row"><label>Easy bail (BUSTR fires it)</label><input type="checkbox" id="bustr-set-easybail"></div>
       <div class="bustr-row"><label>Show success % ${q('success')}</label><input type="checkbox" id="bustr-set-success"></div>
       <div class="bustr-row"><label>Success green at % ${q('sccolour')}</label><input type="number" id="bustr-set-scgreen" min="0" max="100"></div>
       <div class="bustr-row"><label>Success red below %</label><input type="number" id="bustr-set-scred" min="0" max="100"></div>
@@ -3482,6 +3689,8 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     byId('bustr-set-sort').addEventListener('change', (e) => { updateSetting('sortByHardness', e.target.checked); applySettings(); });
     byId('bustr-set-quickbust').addEventListener('change', (e) => { updateSetting('quickBust', e.target.checked); applyQuickActions(); });
     byId('bustr-set-quickbail').addEventListener('change', (e) => { updateSetting('quickBail', e.target.checked); applyQuickActions(); });
+    byId('bustr-set-easybust').addEventListener('change', (e) => { handleEasyToggle('easyBust', e.target); });
+    byId('bustr-set-easybail').addEventListener('change', (e) => { handleEasyToggle('easyBail', e.target); });
     byId('bustr-set-success').addEventListener('change', (e) => { updateSetting('showSuccessChance', e.target.checked); applySettings(); });
     byId('bustr-set-scgreen').addEventListener('change', (e) => { updateSetting('successGreenAt', clampPct(numOr(e.target, SC_GREEN_AT))); applySettings(); });
     byId('bustr-set-scred').addEventListener('change', (e) => { updateSetting('successRedBelow', clampPct(numOr(e.target, SC_RED_BELOW))); applySettings(); });

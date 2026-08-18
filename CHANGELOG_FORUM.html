@@ -1,4 +1,11 @@
 <p>Patch notes for BUSTR, a jail-busting helper userscript for Torn. Original script by Adobi &amp; Ironhydedragon (MIT licensed). Entries below cover this contribution branch, proposed by The_Baron [1467784].</p>
+<p><strong>v2.21.0</strong></p>
+<ul>
+<li>[NEW] <strong>Optional Easy Bust / Easy Bail - opt-in, default OFF, behind a consent prompt.</strong> Turn either on in Settings and BUSTR adds a one-tap button to the jail list header: tapping it sends one bust (or bail) request for the single best target currently shown - Easy Bust picks the highest success %, Easy Bail picks the cheapest. This goes a step past Quick actions: where Quick Bust only relabels your own click, Easy Bust has BUSTR send the request itself. It stays strictly <strong>one tap = one request</strong>, to the same jail page, with no looping, no timer, and no auto-repeat - the button does nothing until you tap it again, and you choose whether and when to tap. BUSTR only chooses which shown target, never when to act.
+</li>
+<li>[NOTE] This is the same one-tap-one-request action the ReTorn extension ships, which a Torn officer reviewed and confirmed stays within Torn's "one click, one request, same page" rule. It is still off by default and asks for a one-time confirmation before it can be enabled. The compliance charter at the top of the script is rewritten to match: the red line is now <strong>automation</strong> (looping, timers, acting without a fresh press, or more than one request per tap), not the act of sending a request you personally triggered.
+</li>
+</ul>
 <p><strong>v2.20.2</strong></p>
 <ul>
 <li>[CHANGED] <strong>The Quick Bust / Quick Bail indicator is now honestly described: it is the green highlight on the button, not a "Q".</strong> The code carried a leftover "Q" badge (copied from how TornTools marks its own quick actions) that was positioned off the icon corner and almost always clipped out of view, so nobody actually saw it - only the green button highlight. That dead badge is removed; the green highlight (plus a subtle icon tint) is the one, real indicator, and the Settings help now says so.
