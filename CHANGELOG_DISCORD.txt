@@ -6,7 +6,7 @@ contribution branch, proposed by The_Baron [1467784].
 
 ---
 
-## v2.21.0
+## v2.21.2
 - [NEW] Optional Easy Bust / Easy Bail - opt-in, default OFF, behind a consent
   prompt. Turn either on in Settings and BUSTR adds a one-tap button to the jail
   list header: tapping it sends one bust (or bail) request for the single best
