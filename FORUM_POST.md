@@ -6,7 +6,7 @@ Keep the credit to Adobi & Ironhydedragon at the top and the fork version (v1.0.
 
 ---
 
-CURRENT VERSION: BUSTR v2.21.2
+CURRENT VERSION: BUSTR v2.21.1
 
 [INSTALL - BUSTR: JAIL BUST ASSISTANT](https://greasyfork.org/en/scripts/585973-bustr-jail-bust-assistant-pda-baron)
 
