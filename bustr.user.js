@@ -1951,11 +1951,11 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
 .user-info-list-wrap > li a.bustr-quick-on .bail-icon {filter: hue-rotate(55deg) saturate(1.3);}
 
 /* Refresh control on the jail list header. */
-.users-list-title .bustr-jail-refresh {
-  cursor: pointer; margin-left: 8px; color: #8ca05a; font-size: 14px;
-  line-height: 1; user-select: none; transition: transform 0.2s ease;
+.bustr-easy-bar .bustr-jail-refresh {
+  cursor: pointer; color: #8ca05a; font-size: 16px; line-height: 1;
+  user-select: none; transition: transform 0.2s ease; vertical-align: middle;
 }
-.users-list-title .bustr-jail-refresh:hover {transform: rotate(90deg); color: #b6cc7a;}
+.bustr-easy-bar .bustr-jail-refresh:hover {transform: rotate(90deg); color: #b6cc7a;}
 
 /* Easy Bust / Easy Bail action bar (opt-in; BUSTR fires one request per tap).
    Its own full-width bar under the jail filter, so the buttons have room and
@@ -2762,18 +2762,6 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     }
   }
 
-  function renderJailRefreshButton() {
-    if (window.location.pathname !== '/jailview.php') return;
-    const titleEl = document.querySelector('.users-list-title');
-    if (!titleEl || titleEl.querySelector('.bustr-jail-refresh')) return;
-    const btn = document.createElement('span');
-    btn.className = 'bustr-jail-refresh';
-    btn.textContent = '↻'; // clockwise arrow
-    btn.title = 'Refresh the jail list';
-    btn.addEventListener('click', refreshJailList);
-    titleEl.appendChild(btn);
-  }
-
   // ----- Easy Bust / Easy Bail (opt-in, consent-gated) --------------------------
   // One tap of the header button = ONE request for the single best target currently
   // shown, sent by BUSTR to the same jailview.php page. Strictly 1 tap = 1 request:
@@ -2836,7 +2824,7 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
   // can be verbose or even carry HTML from the response.
   function easyStatusMessage(kind, outcome, data) {
     if (!data) return 'No response from Torn';
-    if (outcome.gone) return 'Target already freed';
+    if (outcome.gone) return 'This person is no longer in jail.';
     if (outcome.success) return kind === 'bust' ? 'Busted!' : 'Bailed!';
     if (kind === 'bust' && outcome.jailed) return 'Failed - you got jailed';
     return kind === 'bust' ? 'Bust failed' : 'Bail failed';
@@ -2903,16 +2891,16 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     }
   }
 
-  // Build / maintain the Easy actions bar. It is its OWN full-width row inserted just
+  // Build / maintain the BUSTR jail action bar: its OWN full-width row inserted just
   // above the jail list's column-header row (never appended into that cramped header),
-  // so the text buttons have room and don't wrap. Self-heals: if Torn re-renders the
-  // header and drops the bar, the next render pass re-inserts it.
+  // so the buttons have room and don't wrap. Always shown - it holds the refresh button
+  // (always available), plus the Easy Bust / Easy Bail buttons when those are enabled.
+  // Layout: [BUSTR] [Easy Bust] [Easy Bail] [refresh] .......... [status].
+  // Self-heals: if Torn re-renders the header and drops the bar, the next pass re-adds it.
   function renderEasyActionButtons() {
     if (window.location.pathname !== '/jailview.php') return;
     const us = getUserSettings();
-    const anyOn = us.easyBust === true || us.easyBail === true;
     let bar = document.querySelector('.bustr-easy-bar');
-    if (!anyOn) { if (bar) bar.remove(); return; }
     if (!bar) {
       const anchor = document.querySelector('.users-list-title') || document.querySelector('ul.user-info-list-wrap');
       if (!anchor || !anchor.parentNode) return;
@@ -2924,12 +2912,25 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
       bar.appendChild(lbl);
       anchor.parentNode.insertBefore(bar, anchor);
     }
+    // Status span pinned to the far right (margin-left:auto), always last.
     let statusEl = bar.querySelector('.bustr-easy-status');
     if (!statusEl) {
       statusEl = document.createElement('span');
       statusEl.className = 'bustr-easy-status';
       bar.appendChild(statusEl);
     }
+    // Refresh button: always present, positioned just left of the status (i.e. to the
+    // right of the Easy buttons) for convenient bust-then-refresh use.
+    let refresh = bar.querySelector('.bustr-jail-refresh');
+    if (!refresh) {
+      refresh = document.createElement('span');
+      refresh.className = 'bustr-jail-refresh';
+      refresh.textContent = '↻'; // clockwise arrow
+      refresh.title = 'Refresh the jail list';
+      refresh.addEventListener('click', refreshJailList);
+    }
+    bar.insertBefore(refresh, statusEl); // (re)position before status each pass
+    // Easy buttons: inserted just left of the refresh button.
     const sync = (kind, label, want) => {
       const cls = 'bustr-easy-' + kind;
       let b = bar.querySelector('.' + cls);
@@ -2940,7 +2941,7 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
         b.title = 'One tap = one ' + kind + ' request for the ' +
           (kind === 'bust' ? 'best-odds' : 'cheapest') + ' shown target (BUSTR sends it)';
         b.addEventListener('click', () => fireEasyAction(kind, b, statusEl));
-        bar.insertBefore(b, statusEl); // keep the status span last so it right-aligns
+        bar.insertBefore(b, refresh);
       } else if (!want && b) {
         b.remove();
       }
@@ -2967,8 +2968,7 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     createHardnessScoreObserver();
     installQuickClickHandler(); // race-proof quick bust/bail; safe no-op unless a toggle is on
     renderHardnessJailView();
-    renderJailRefreshButton();
-    renderEasyActionButtons();
+    renderEasyActionButtons(); // BUSTR jail bar: refresh button + Easy Bust/Bail
     applyJailVisibility();
     renderJailRows();
     if (SHOW_SETTINGS_PANEL) ensureSettingsUi();
