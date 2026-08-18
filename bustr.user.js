@@ -2831,11 +2831,21 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
   }
 
   // Pull the target's name out of Torn's reply, which wraps it in a profile anchor
-  // e.g. "You busted <a ... >Woodwinds</a> out of jail". Returns null if not found.
+  // e.g. "You busted <a ... >Woodwinds</a> out of jail". Parsed as HTML (via an inert
+  // DOMParser document - no scripts run, no resources load) and read as textContent, so
+  // HTML-encoded names decode correctly (e.g. "Foo&amp;Bar" -> "Foo&Bar", accents, etc.)
+  // rather than showing raw entities. Returns null if no name anchor is found.
   function responseName(data) {
     const raw = (data && (data.msg || data.text)) || '';
-    const m = raw.match(/>\s*([^<>]+?)\s*<\/a>/);
-    return m && m[1] ? m[1].trim() : null;
+    if (!raw) return null;
+    try {
+      const doc = new DOMParser().parseFromString(raw, 'text/html');
+      const a = doc.querySelector('a[href*="profiles.php"]') || doc.querySelector('a');
+      const n = a ? (a.textContent || '').trim() : '';
+      return n || null;
+    } catch (e) {
+      return null;
+    }
   }
 
   // A short, clean status line for the bar - never Torn's raw reply text, which
