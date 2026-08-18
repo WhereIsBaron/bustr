@@ -2770,6 +2770,16 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
   // YOU choose whether and when to tap. See the COMPLIANCE NOTE at the top.
   let easyActionInFlight = false;
 
+  // Best-effort read of the captive's name from their jail row (fallback for the
+  // status line if the response text doesn't carry it).
+  function jailRowName(li) {
+    if (!li) return null;
+    const el = li.querySelector('a.user.name') || li.querySelector('a.user') || li.querySelector('a[href*="profiles.php"]');
+    if (!el) return null;
+    const n = (el.textContent || el.getAttribute('title') || '').trim();
+    return n || null;
+  }
+
   // Pick the single best currently-shown target. Bust: highest BUSTR success %.
   // Bail: lowest hardness (cheapest/easiest). Skips rows already actioned this
   // render and rows without the matching link. Returns null if there is none.
@@ -2794,7 +2804,7 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
         : (Number.isFinite(hardness) ? -hardness : -Infinity);
       if (!best || rank > best.rank) {
         best = {
-          li, href, rank,
+          li, href, rank, name: jailRowName(li),
           success: Number.isFinite(success) ? success : null,
           hardness: Number.isFinite(hardness) ? hardness : null,
         };
@@ -2820,14 +2830,23 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     return { success: false, jailed, text };
   }
 
+  // Pull the target's name out of Torn's reply, which wraps it in a profile anchor
+  // e.g. "You busted <a ... >Woodwinds</a> out of jail". Returns null if not found.
+  function responseName(data) {
+    const raw = (data && (data.msg || data.text)) || '';
+    const m = raw.match(/>\s*([^<>]+?)\s*<\/a>/);
+    return m && m[1] ? m[1].trim() : null;
+  }
+
   // A short, clean status line for the bar - never Torn's raw reply text, which
-  // can be verbose or even carry HTML from the response.
-  function easyStatusMessage(kind, outcome, data) {
+  // can be verbose or even carry HTML. Includes the target's name when known.
+  function easyStatusMessage(kind, outcome, data, name) {
     if (!data) return 'No response from Torn';
     if (outcome.gone) return 'This person is no longer in jail.';
-    if (outcome.success) return kind === 'bust' ? 'Busted!' : 'Bailed!';
-    if (kind === 'bust' && outcome.jailed) return 'Failed - you got jailed';
-    return kind === 'bust' ? 'Bust failed' : 'Bail failed';
+    const verb = kind === 'bust' ? 'busted' : 'bailed';
+    if (outcome.success) return name ? name + ' was ' + verb + '.' : (kind === 'bust' ? 'Busted!' : 'Bailed!');
+    if (kind === 'bust' && outcome.jailed) return name ? 'Failed to bust ' + name + ' - you got jailed.' : 'Failed - you got jailed';
+    return name ? 'Failed to ' + kind + ' ' + name + '.' : (kind === 'bust' ? 'Bust failed' : 'Bail failed');
   }
 
   // Fire exactly ONE request for the best shown target. Guarded so overlapping
@@ -2866,7 +2885,8 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
       const outcome = classifyEasyResponse(kind, data || {});
 
       target.li.classList.add('bustr-easy-done'); // don't re-target the same person on the next tap
-      if (statusEl) statusEl.textContent = easyStatusMessage(kind, outcome, data);
+      const name = responseName(data) || target.name || null; // prefer Torn's reply, fall back to the row
+      if (statusEl) statusEl.textContent = easyStatusMessage(kind, outcome, data, name);
 
       if (kind === 'bust') {
         if (outcome.gone) {
