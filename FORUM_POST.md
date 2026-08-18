@@ -37,9 +37,9 @@ The success model is built from the community Advanced Jail Bust Guide, then fit
 - Penalty hurts about twice as much as the guide's formula says. Confirmed on two separate batches of outcomes that agreed independently.
 - **It will never show you 100%.** In the pooled outcome data even the best-looking targets succeed only around two-thirds of the time. So the displayed range is roughly 27% to 67%, because an honest 67% is worth more than a flattering 100%. If a number looks lower than you expected, that's the point.
 
-**Read-only, fully within the rules**
+**Not a bot, and within the rules**
 
-BUSTR never clicks, submits, or automates anything for you. It reads your own official API data (with a key you create yourself), reads the jail page already in front of you, and displays its own numbers in its own panel. It logs outcomes only by watching clicks you make. Nothing is busted for you, ever.
+BUSTR never automates: no loops, no timers, no walking the target list, and it never acts on its own. By default it is read-only - it reads your own official API data (with a key you create yourself), reads the jail page already in front of you, shows its own numbers in its own panel, and logs outcomes only by watching clicks you make. It also has opt-in helpers, off by default, that act only when you tell them to: Quick Bust relabels your own click to skip Torn's confirm step, and Easy Bust (behind a one-time consent prompt) sends one bust request for one target each time you tap its button. Both stay strictly one deliberate tap = one request, to the same jail page - never a loop, never more than one per tap. You are always the one deciding to act.
 
 ---
 
