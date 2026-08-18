@@ -4,6 +4,10 @@ Patch notes for BUSTR, a jail-busting helper userscript for Torn. Original scrip
 
 ---
 
+## v2.20.2
+- [CHANGED] **The Quick Bust / Quick Bail indicator is now honestly described: it is the green highlight on the button, not a "Q".** The code carried a leftover "Q" badge (copied from how TornTools marks its own quick actions) that was positioned off the icon corner and almost always clipped out of view, so nobody actually saw it - only the green button highlight. That dead badge is removed; the green highlight (plus a subtle icon tint) is the one, real indicator, and the Settings help now says so.
+- [NOTE] **If you run TornTools, turn its own Quick Bust off to use BUSTR's - the two act on the same bust/bail link and conflict.** Earlier notes claimed BUSTR "won't fight" another script doing the same; in practice running both together does conflict, so only one should be on. The Settings help and the v2.18.x notes are corrected to match.
+
 ## v2.20.1
 - [INTERNAL] **The script now supports auto-updates for GitHub installs.** It declares `@updateURL`/`@downloadURL` pointing at a stable `release` branch, so a copy installed from GitHub updates itself to vetted releases through your userscript manager. The `main` branch auto-commits work in progress and is deliberately NOT the update source, so half-finished changes never reach anyone. No behaviour change; GreasyFork installs continue to update through GreasyFork as before.
 

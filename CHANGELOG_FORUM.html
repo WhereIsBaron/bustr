@@ -1,4 +1,11 @@
 <p>Patch notes for BUSTR, a jail-busting helper userscript for Torn. Original script by Adobi &amp; Ironhydedragon (MIT licensed). Entries below cover this contribution branch, proposed by The_Baron [1467784].</p>
+<p><strong>v2.20.2</strong></p>
+<ul>
+<li>[CHANGED] <strong>The Quick Bust / Quick Bail indicator is now honestly described: it is the green highlight on the button, not a "Q".</strong> The code carried a leftover "Q" badge (copied from how TornTools marks its own quick actions) that was positioned off the icon corner and almost always clipped out of view, so nobody actually saw it - only the green button highlight. That dead badge is removed; the green highlight (plus a subtle icon tint) is the one, real indicator, and the Settings help now says so.
+</li>
+<li>[NOTE] <strong>If you run TornTools, turn its own Quick Bust off to use BUSTR's - the two act on the same bust/bail link and conflict.</strong> Earlier notes claimed BUSTR "won't fight" another script doing the same; in practice running both together does conflict, so only one should be on. The Settings help and the v2.18.x notes are corrected to match.
+</li>
+</ul>
 <p><strong>v2.20.1</strong></p>
 <ul>
 <li>[INTERNAL] <strong>The script now supports auto-updates for GitHub installs.</strong> It declares <code>@updateURL</code>/<code>@downloadURL</code> pointing at a stable <code>release</code> branch, so a copy installed from GitHub updates itself to vetted releases through your userscript manager. The <code>main</code> branch auto-commits work in progress and is deliberately NOT the update source, so half-finished changes never reach anyone. No behaviour change; GreasyFork installs continue to update through GreasyFork as before.
@@ -22,7 +29,7 @@
 </ul>
 <p><strong>v2.18.1</strong></p>
 <ul>
-<li>[FIX] <strong>Quick bust/bail is now reliable, and BUSTR's own jail refresh no longer breaks it.</strong> Torn's jail list is React-rendered and rebuilds each bust/bail link constantly (on every refresh, filter change, or tick), which wiped the no-confirm marker written onto the link ahead of time - so the confirmation page came back intermittently, and always right after using BUSTR's refresh. Quick bust/bail now points your click at Torn's no-confirm link <strong>at the moment you click it</strong> (a capture-phase handler that runs before Torn's own click logic), so it can't be undone by a re-render and survives refreshes. It stays idempotent and never strips anyone else's marker, so it won't fight another script doing the same (e.g. TornTools). Still your own click, one request - no automation.
+<li>[FIX] <strong>Quick bust/bail is now reliable, and BUSTR's own jail refresh no longer breaks it.</strong> Torn's jail list is React-rendered and rebuilds each bust/bail link constantly (on every refresh, filter change, or tick), which wiped the no-confirm marker written onto the link ahead of time - so the confirmation page came back intermittently, and always right after using BUSTR's refresh. Quick bust/bail now points your click at Torn's no-confirm link <strong>at the moment you click it</strong> (a capture-phase handler that runs before Torn's own click logic), so it can't be undone by a re-render and survives refreshes. It stays idempotent and never strips anyone else's marker, but do not run it alongside TornTools' own Quick Bust: the two act on the same link and conflict, so turn TornTools' Quick Bust off to use BUSTR's. Still your own click, one request - no automation.
 </li>
 </ul>
 <p><strong>v2.18.0</strong></p>
