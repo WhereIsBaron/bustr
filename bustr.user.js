@@ -2832,6 +2832,16 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     return { success: false, jailed, text };
   }
 
+  // A short, clean status line for the bar - never Torn's raw reply text, which
+  // can be verbose or even carry HTML from the response.
+  function easyStatusMessage(kind, outcome, data) {
+    if (!data) return 'No response from Torn';
+    if (outcome.gone) return 'Target already freed';
+    if (outcome.success) return kind === 'bust' ? 'Busted!' : 'Bailed!';
+    if (kind === 'bust' && outcome.jailed) return 'Failed - you got jailed';
+    return kind === 'bust' ? 'Bust failed' : 'Bail failed';
+  }
+
   // Fire exactly ONE request for the best shown target. Guarded so overlapping
   // taps cannot double-fire; no retry, no loop, no chaining.
   async function fireEasyAction(kind, btn, statusEl) {
@@ -2868,7 +2878,7 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
       const outcome = classifyEasyResponse(kind, data || {});
 
       target.li.classList.add('bustr-easy-done'); // don't re-target the same person on the next tap
-      if (statusEl) statusEl.textContent = (outcome.text || (outcome.success ? 'Done' : 'No result')).slice(0, 70);
+      if (statusEl) statusEl.textContent = easyStatusMessage(kind, outcome, data);
 
       if (kind === 'bust') {
         if (outcome.gone) {

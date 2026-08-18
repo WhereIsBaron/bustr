@@ -13,6 +13,9 @@ IMPORTANT: set the Additional info format toggle to **Markdown** (not HTML) on G
 - Adds a hardness score and a live success percentage to every prisoner on the jail page, so your real odds are right there at a glance.
 - Tracks your bust penalty, the hidden cooldown that builds up as you bust, and estimates how many busts you have left before your success rate drops off.
 - Can learn from your own results over time to fine-tune its predictions to you. This self-calibration is fully passive and reads only the bust-result text Torn already shows you.
+- Optional Quick Bust / Quick Bail (off by default): relabels Torn's own bust/bail link so your single click skips the "are you sure?" step.
+- Optional Easy Bust / Easy Bail (off by default, behind a consent prompt): a one-tap button on the jail header that sends one request for the single best shown target - bust picks the highest success %, bail the cheapest. Strictly one tap = one request; see the rules note below.
+- A jail-list refresh button that reloads just the captive list in place, with no full page reload.
 - Puts its settings button in Torn's sidebar right under TornTools, styled to look like a native row.
 
 ### Your privacy and your account come first

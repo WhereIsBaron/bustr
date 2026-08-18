@@ -6,7 +6,7 @@ Keep the credit to Adobi & Ironhydedragon at the top and the fork version (v1.0.
 
 ---
 
-CURRENT VERSION: BUSTR v2.20.2
+CURRENT VERSION: BUSTR v2.21.0
 
 [INSTALL - BUSTR: JAIL BUST ASSISTANT](https://greasyfork.org/en/scripts/585973-bustr-jail-bust-assistant-pda-baron)
 
@@ -29,6 +29,9 @@ Small settings panel, its own button in the nav bar with your live numbers on it
 - Learns from your own results over time, if you leave self-calibration on.
 - Every setting has a "?" that explains what it actually does.
 - One-click scoped API key - no Full Access key needed.
+- Optional Quick Bust / Quick Bail (off by default): relabels your own bust/bail link so your single click skips Torn's "are you sure?" step.
+- Optional Easy Bust / Easy Bail (off by default, behind a consent prompt): a one-tap button on the jail header that sends one request for the single best shown target - bust picks the highest odds, bail the cheapest. Strictly one tap = one request; see the rules note below.
+- In-place jail list refresh that reloads just the captive list, no full page reload.
 
 **Why the numbers are different**
 
