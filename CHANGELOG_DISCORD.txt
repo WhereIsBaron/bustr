@@ -16,6 +16,11 @@ contribution branch, proposed by The_Baron [1467784].
   strictly one tap = one request, to the same jail page, with no looping, no
   timer, and no auto-repeat - the button does nothing until you tap it again, and
   you choose whether and when to tap. BUSTR only chooses which shown target.
+- [CHANGED] The jail list refresh button now sits in a small BUSTR bar above the
+  captive list, next to the Easy actions, instead of tucked into the list header.
+  The bar shows on the jail page with the refresh control, and the Easy Bust /
+  Easy Bail buttons join it when you turn them on. On a successful action the bar
+  names who it hit, e.g. "Woodwinds was busted."
 - [NOTE] This is the same one-tap-one-request action the ReTorn extension ships,
   which a Torn officer reviewed and confirmed stays within Torn's "one click, one
   request, same page" rule. Still off by default and asks for a one-time
