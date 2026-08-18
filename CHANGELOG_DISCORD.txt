@@ -74,18 +74,20 @@ contribution branch, proposed by The_Baron [1467784].
   Torn's no-confirm link at the moment you click it (a capture-phase
   handler that runs before Torn's own click logic), so it can't be undone
   by a re-render and survives refreshes. It stays idempotent and never
-  strips anyone else's marker, so it won't fight another script doing the
-  same (e.g. TornTools). Still your own click, one request - no automation.
+  strips anyone else's marker, but do not run it alongside TornTools' own
+  Quick Bust: the two act on the same link and conflict, so turn TornTools'
+  Quick Bust off to use BUSTR's. Still your own click, one request - no
+  automation.
 
 ## v2.18.0
 - [NEW] Optional Quick Bust / Quick Bail - opt-in, default OFF. Turn either
   on in Settings and BUSTR sends your own click straight to Torn's
   no-confirmation variant of its bust/bail link, skipping the "are you
-  sure?" step. A green "Q" badge and a highlight mark every button it
-  applies to. BUSTR never clicks, fetches, or loops - you still press every
+  sure?" step. A green highlight marks every button it applies to.
+  BUSTR never clicks, fetches, or loops - you still press every
   button yourself, one click per bust, which is exactly Torn's stated rule
   (the same mechanism the long-standing TornTools extension uses). Leave it
-  off to keep Torn's confirmation.
+  off to keep Torn's confirmation. (TURN OFF TORNTOOLS QUICK BUST TO USE THIS)
 - [NEW] Jail list refresh button. A refresh control on the jail list header
   reloads just the captive list in place - no full page reload - by nudging
   Torn's own hash-based list loader, then BUSTR re-decorates the fresh rows

@@ -1931,17 +1931,8 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
 /* Over 100%: heavier, brighter red + glow so it reads as clearly more serious. */
 .bustr-pct-line.bustr-pen--critical {color: #ff2d2d; opacity: 1; font-weight: 800; text-shadow: 0 0 5px rgba(255, 45, 45, 0.55);}
 
-/* Quick bust/bail indication (opt-in). Mirrors TornTools: a "Q" badge on the
-   icon, plus a highlight on the whole button so the active mode is unmistakable. */
-.user-info-list-wrap > li a[href*='step=breakout'],
-.user-info-list-wrap > li a[href*='step=buy'] {position: relative;}
-.bustr-quick-q {
-  position: absolute; top: -5px; right: -5px; z-index: 2;
-  min-width: 13px; height: 13px; padding: 0 2px; box-sizing: border-box;
-  background: #8ca05a; color: #14180c; border: 1px solid #14180c; border-radius: 7px;
-  font-size: 9px; font-weight: 800; line-height: 12px; text-align: center;
-  pointer-events: none; /* never intercept the player's click */
-}
+/* Quick bust/bail indication (opt-in): a green highlight on the whole button
+   (plus a hue shift on the icon) so the active mode is unmistakable. */
 .user-info-list-wrap > li a.bustr-quick-on {
   box-shadow: 0 0 0 1px #8ca05a inset; border-radius: 4px;
 }
@@ -2665,22 +2656,13 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
   // href. Pre-writing therefore goes stale and the confirm page comes back
   // intermittently. Instead we only paint the indicator here, and rewrite the
   // clicked link inside a capture-phase click handler (installQuickClickHandler)
-  // the instant before navigation - immune to re-render races, and it never
-  // fights another script (e.g. TornTools) doing the same, since the rewrite is
-  // idempotent and we never strip anyone else's '1'.
+  // the instant before navigation - immune to re-render races. The rewrite is
+  // idempotent and never strips anyone else's '1', but do NOT run this alongside
+  // TornTools' own Quick Bust: both act on the same bust/bail link and conflict,
+  // so TornTools' Quick Bust must be off for BUSTR's to work.
   function setQuickLink(anchorEl, on) {
     if (!anchorEl) return;
-    anchorEl.classList.toggle('bustr-quick-on', on); // highlights the whole button so the mode is obvious at a glance
-    let badge = anchorEl.querySelector('.bustr-quick-q');
-    if (on && !badge) {
-      badge = document.createElement('span');
-      badge.className = 'bustr-quick-q';
-      badge.textContent = 'Q';
-      badge.title = 'Quick action: your click skips the confirmation step';
-      anchorEl.appendChild(badge);
-    } else if (!on && badge) {
-      badge.remove();
-    }
+    anchorEl.classList.toggle('bustr-quick-on', on); // green highlight on the whole button so the mode is obvious at a glance
   }
 
   function applyQuickActions() {
@@ -3290,7 +3272,7 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     display: ['Jail list display', 'These change only what the jail list shows and how it is sorted. The hardness score and the odds underneath are always calculated the same way regardless.'],
     hardness: ['Hardness number', 'Shows each prisoner\'s hardness score, which is their level multiplied by their remaining jail time plus three hours. Higher means harder to bust.'],
     sort: ['Sort easiest-first', 'Reorders the jail list so the easiest targets sit at the top. Torn\'s own order is by time remaining instead.'],
-    quickactions: ['Quick actions', 'Optional. When on, BUSTR relabels Torn\'s own bust/bail link to its no-confirmation variant (a "Q" appears on the icon) so your single click skips the "are you sure?" step. BUSTR never clicks or busts for you - you still press every button yourself, one click per bust. This is the same mechanism the long-running TornTools extension uses. Off by default; leave off if you prefer Torn\'s confirmation.'],
+    quickactions: ['Quick actions', 'Optional. When on, BUSTR relabels Torn\'s own bust/bail link to its no-confirmation variant (the button gets a green highlight) so your single click skips the "are you sure?" step. BUSTR never clicks or busts for you - you still press every button yourself, one click per bust. This is the same mechanism the long-running TornTools extension uses. If you run TornTools, turn its own Quick Bust off to use this - the two act on the same link and conflict. Off by default; leave off if you prefer Torn\'s confirmation.'],
     success: ['Show success %', 'Shows your estimated chance of busting each prisoner, from their hardness and your current penalty.'],
     sccolour: ['Success % colours', 'Colour thresholds for the per-target percentage: green at or above the first number, red below the second, orange in between. Display only, they never change the percentage itself.'],
     model: ['Success % model', 'These change the actual predicted number. When more than one applies the priority is: manual override wins, then self-calibration once it has enough data, then the perk baseline.'],
