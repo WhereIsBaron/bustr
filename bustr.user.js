@@ -1957,15 +1957,32 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
 }
 .users-list-title .bustr-jail-refresh:hover {transform: rotate(90deg); color: #b6cc7a;}
 
-/* Easy Bust / Easy Bail header buttons (opt-in; BUSTR fires one request per tap). */
-.users-list-title .bustr-easy-btn {
-  cursor: pointer; margin-left: 10px; font-size: 11px; font-weight: 700;
-  color: #14180c; background: #8ca05a; border: 1px solid #14180c; border-radius: 4px;
-  padding: 1px 7px; user-select: none; vertical-align: middle;
+/* Easy Bust / Easy Bail action bar (opt-in; BUSTR fires one request per tap).
+   Its own full-width bar under the jail filter, so the buttons have room and
+   never wrap into the cramped action-icon columns of the list header. */
+.bustr-easy-bar {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+  padding: 6px 12px; margin: 0;
+  background: rgba(0, 0, 0, 0.22); border-bottom: 1px solid rgba(0, 0, 0, 0.35);
 }
-.users-list-title .bustr-easy-btn:hover {background: #b6cc7a;}
-.users-list-title .bustr-easy-btn.bustr-easy-busy {opacity: 0.45; pointer-events: none;}
-.users-list-title .bustr-easy-status {margin-left: 8px; font-size: 11px; color: #b6cc7a; vertical-align: middle;}
+.bustr-easy-bar .bustr-easy-label {
+  font-size: 10px; font-weight: 800; letter-spacing: 0.5px;
+  color: #8ca05a; text-transform: uppercase;
+}
+.bustr-easy-btn {
+  cursor: pointer; font-size: 12px; font-weight: 700; white-space: nowrap;
+  color: #14180c; background: #8ca05a; border: 1px solid #6f8340; border-radius: 5px;
+  padding: 4px 12px; user-select: none; line-height: 1.2; transition: background 0.12s ease;
+}
+.bustr-easy-btn:hover {background: #b6cc7a;}
+.bustr-easy-btn:active {background: #7a9049;}
+.bustr-easy-btn.bustr-easy-busy {opacity: 0.5; pointer-events: none;}
+.bustr-easy-btn.bustr-easy-bail {background: #c9a84a; border-color: #a2842f;}
+.bustr-easy-btn.bustr-easy-bail:hover {background: #dcbf63;}
+.bustr-easy-status {
+  font-size: 11px; color: #cfe0a0; margin-left: auto;
+  max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .user-info-list-wrap > li.bustr-easy-done {opacity: 0.5;}
 
 /* Settings button + panel */
@@ -2664,6 +2681,7 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
       renderSuccessChance(playerEl, calcSuccessChance(hardnessScore, penaltyPct));
     }
     applyQuickActions(); // keep the opt-in quick-bust/bail relabelling in sync every render pass
+    renderEasyActionButtons(); // re-ensure the Easy actions bar if Torn re-rendered the header away
   }
 
   // Quick Bust / Quick Bail. Sends the PLAYER's own click to Torn's
@@ -2797,11 +2815,16 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     return best;
   }
 
-  // Classify Torn's JSON bust/bail response into success / jailed / clean-fail.
+  // Classify Torn's JSON bust/bail response into success / jailed / clean-fail / gone.
+  // "gone" = the target already left jail (or wasn't actionable): NOT a real bust
+  // outcome, so it must not be logged for self-calibration. Checked first.
   // Defensive: if the shape is unfamiliar, report not-success and don't guess jailed.
   function classifyEasyResponse(kind, data) {
     const text = ((data && (data.msg || data.text)) || '').toString();
     const green = !!(data && data.color === 'green');
+    if (/no longer in jail|not in jail|already (been )?(busted|bailed|released|free)|isn't in jail/i.test(text)) {
+      return { success: false, jailed: false, gone: true, text };
+    }
     if (kind === 'bail') return { success: green || /bailed|released|out of jail/i.test(text), jailed: false, text };
     const success = green || /you busted/i.test(text);
     if (success) return { success: true, jailed: false, text };
@@ -2848,7 +2871,9 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
       if (statusEl) statusEl.textContent = (outcome.text || (outcome.success ? 'Done' : 'No result')).slice(0, 70);
 
       if (kind === 'bust') {
-        if (outcome.success) {
+        if (outcome.gone) {
+          takePendingAttempt(); // target already left jail: discard, don't log a phantom failure
+        } else if (outcome.success) {
           logOutcome(true); // consumes the pending attempt if self-cal recorded one
           setPenaltyScore(getPenaltyScore() + PENALTY_PER_BUST);
           setAvailableBusts(calcAvailableBusts(getPenaltyScore(), getPenaltyThreshold()));
@@ -2868,28 +2893,44 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     }
   }
 
-  // Add / remove the Easy Bust / Easy Bail header buttons to match the toggles.
+  // Build / maintain the Easy actions bar. It is its OWN full-width row inserted just
+  // above the jail list's column-header row (never appended into that cramped header),
+  // so the text buttons have room and don't wrap. Self-heals: if Torn re-renders the
+  // header and drops the bar, the next render pass re-inserts it.
   function renderEasyActionButtons() {
     if (window.location.pathname !== '/jailview.php') return;
-    const titleEl = document.querySelector('.users-list-title');
-    if (!titleEl) return;
     const us = getUserSettings();
-    const ensureStatus = () => {
-      let s = titleEl.querySelector('.bustr-easy-status');
-      if (!s) { s = document.createElement('span'); s.className = 'bustr-easy-status'; titleEl.appendChild(s); }
-      return s;
-    };
+    const anyOn = us.easyBust === true || us.easyBail === true;
+    let bar = document.querySelector('.bustr-easy-bar');
+    if (!anyOn) { if (bar) bar.remove(); return; }
+    if (!bar) {
+      const anchor = document.querySelector('.users-list-title') || document.querySelector('ul.user-info-list-wrap');
+      if (!anchor || !anchor.parentNode) return;
+      bar = document.createElement('div');
+      bar.className = 'bustr-easy-bar';
+      const lbl = document.createElement('span');
+      lbl.className = 'bustr-easy-label';
+      lbl.textContent = 'BUSTR';
+      bar.appendChild(lbl);
+      anchor.parentNode.insertBefore(bar, anchor);
+    }
+    let statusEl = bar.querySelector('.bustr-easy-status');
+    if (!statusEl) {
+      statusEl = document.createElement('span');
+      statusEl.className = 'bustr-easy-status';
+      bar.appendChild(statusEl);
+    }
     const sync = (kind, label, want) => {
       const cls = 'bustr-easy-' + kind;
-      let b = titleEl.querySelector('.' + cls);
+      let b = bar.querySelector('.' + cls);
       if (want && !b) {
         b = document.createElement('span');
         b.className = 'bustr-easy-btn ' + cls;
         b.textContent = label;
         b.title = 'One tap = one ' + kind + ' request for the ' +
           (kind === 'bust' ? 'best-odds' : 'cheapest') + ' shown target (BUSTR sends it)';
-        b.addEventListener('click', () => fireEasyAction(kind, b, ensureStatus()));
-        titleEl.appendChild(b);
+        b.addEventListener('click', () => fireEasyAction(kind, b, statusEl));
+        bar.insertBefore(b, statusEl); // keep the status span last so it right-aligns
       } else if (!want && b) {
         b.remove();
       }
