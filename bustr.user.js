@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BUSTR: Jail Bust Assistant + PDA (Baron)
 // @namespace    http://torn.city.com.dot.com.com
-// @version      2.21.1
+// @version      2.22.0
 // @description  Shows your success odds on every jailed target, and how many busts you can make before failure gets likely
 // @updateURL    https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
 // @downloadURL  https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
@@ -65,7 +65,7 @@
   ////////////////////////////////////////////////////////////////////////////
 
   const DEBUG = false; // set true while debugging to re-enable console logs
-  const SCRIPT_VERSION = '2.21.1'; // keep in sync with the @version header above - stamped into diagnostic exports
+  const SCRIPT_VERSION = '2.22.0'; // keep in sync with the @version header above - stamped into diagnostic exports
 
   // Penalty model. Matches the documented in-game mechanic: each bust adds a
   // penalty that decays hyperbolically as P0 / (1 + c*t), losing half at 10h and
@@ -1373,11 +1373,34 @@
         cal: getSkillCalibration(),         // effective skill calibration currently in use
         selfCalVal: (typeof s.selfCalibrationValue === 'number' ? s.selfCalibrationValue : null),
         pda: isPDA(),                       // desktop vs PDA, for segmentation
-        settings: {                         // only the prediction-affecting settings
+        // Full settings snapshot (all non-sensitive - no API key, name, ID or faction).
+        // Two jobs: the prediction-affecting fields inform the shared model, and the
+        // whole set lets panel usage be studied - which controls people actually change
+        // vs leave at default - so the settings panel can be pruned/decluttered on
+        // evidence rather than guesswork. Mirrors exactly what the panel already exposes.
+        settings: {
+          // prediction-affecting (kept under their original names for continuity):
           perkCal: !!us.usePerkCalibration,
           selfCal: !!us.selfCalibrationEnabled,
           calOverride: (typeof us.skillCalibrationOverride === 'number' ? us.skillCalibrationOverride : null),
           playStyle: us.playStyle || null,
+          // budget / colour band section:
+          redLimit: us.reminderLimits ? us.reminderLimits.redLimit : null,
+          greenLimit: us.reminderLimits ? us.reminderLimits.greenLimit : null,
+          customPenaltyThreshold: (typeof us.customPenaltyThreshold === 'number' ? us.customPenaltyThreshold : null),
+          statsRefreshRate: (typeof us.statsRefreshRate === 'number' ? us.statsRefreshRate : null),
+          activeScope: us.activeScope || null,
+          navBadgeDetail: us.navBadgeDetail || null,
+          // jail-list display section:
+          showHardnessScore: !!us.showHardnessScore,
+          sortByHardness: !!us.sortByHardness,
+          quickBust: !!us.quickBust,
+          quickBail: !!us.quickBail,
+          easyBust: !!us.easyBust,
+          easyBail: !!us.easyBail,
+          showSuccessChance: !!us.showSuccessChance,
+          successGreenAt: (typeof us.successGreenAt === 'number' ? us.successGreenAt : null),
+          successRedBelow: (typeof us.successRedBelow === 'number' ? us.successRedBelow : null),
         },
       };
     }
@@ -1979,6 +2002,25 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
 .bustr-easy-btn.bustr-easy-busy {opacity: 0.5; pointer-events: none;}
 .bustr-easy-btn.bustr-easy-bail {background: #c9a84a; border-color: #a2842f;}
 .bustr-easy-btn.bustr-easy-bail:hover {background: #dcbf63;}
+/* Quick Bust / Quick Bail toggle pills (moved out of the settings panel). A pill is
+   OFF (outlined) or ON (green fill); tapping it flips the opt-in link-relabel mode
+   right here on the jail page. Unlike the Easy buttons it fires nothing - it only
+   relabels your OWN bust/bail link so your single click skips Torn's confirm step. */
+.bustr-easy-bar .bustr-quick-toggle {
+  cursor: pointer; font-size: 12px; font-weight: 700; white-space: nowrap;
+  color: #9aa87d; background: transparent; border: 1px solid #4b5738; border-radius: 5px;
+  padding: 3px 10px; user-select: none; line-height: 1.2;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.bustr-easy-bar .bustr-quick-toggle:hover {border-color: #6f8340; color: #c2d69a;}
+.bustr-easy-bar .bustr-quick-toggle.bustr-on {
+  color: #dcecb4; background: #4b5738; border-color: #8ca05a;
+  box-shadow: 0 0 0 1px #8ca05a inset;
+}
+.bustr-easy-bar .bustr-quick-toggle::before {
+  content: '\\2610'; margin-right: 5px; font-weight: 400; opacity: 0.8;
+}
+.bustr-easy-bar .bustr-quick-toggle.bustr-on::before {content: '\\2611'; opacity: 1;}
 .bustr-easy-status {
   font-size: 11px; color: #cfe0a0; margin-left: auto;
   max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -2069,13 +2111,15 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
 /* Help system. Every explanation used to sit inline as permanent small print, which
    made the panel a wall of text a new user had to read past to reach the controls.
    The prose now lives behind these chips and opens in one shared card. */
-#bustr-settings-panel .bustr-q {
+#bustr-settings-panel .bustr-q,
+.bustr-easy-bar .bustr-q {
   display: inline-flex; align-items: center; justify-content: center;
   width: 14px; height: 14px; margin-left: 5px; border-radius: 50%;
   background: #4b5738; color: #fff; font-size: 9px; font-weight: 700;
   cursor: pointer; user-select: none; flex: 0 0 auto; vertical-align: middle;
 }
-#bustr-settings-panel .bustr-q:hover {background: #6b7d50;}
+#bustr-settings-panel .bustr-q:hover,
+.bustr-easy-bar .bustr-q:hover {background: #6b7d50;}
 /* Chips beside a button, never inside one - a chip nested in a <button> fires that
    button when tapped. See the capture-phase note on the panel's click handler. */
 #bustr-settings-panel .bustr-btn-row {display: flex; align-items: center; gap: 7px;}
@@ -2083,7 +2127,8 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
 /* The key-creation control is an <a>, not a <button>, so it needs the button's box
    model restated - buttons centre their text and links do not. */
 #bustr-settings-panel .bustr-btn-link {display: block; text-align: center; text-decoration: none;}
-#bustr-settings-panel .bustr-q.bustr-q-on {background: #8ca05a; color: #1a1a1a;}
+#bustr-settings-panel .bustr-q.bustr-q-on,
+.bustr-easy-bar .bustr-q.bustr-q-on {background: #8ca05a; color: #1a1a1a;}
 /* Sits to the RIGHT of the panel on a desktop-width viewport. The panel is 280px
    wide and centred, so half of it is 140px; 152px clears it with a small gap. */
 #bustr-help {
@@ -2927,6 +2972,13 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
   // (always available), plus the Easy Bust / Easy Bail buttons when those are enabled.
   // Layout: [BUSTR] [Easy Bust] [Easy Bail] [refresh] .......... [status].
   // Self-heals: if Torn re-renders the header and drops the bar, the next pass re-adds it.
+  // Reflect a Quick pill's on/off look from the current setting.
+  function syncQuickPill(pill, key) {
+    const on = getUserSettings()[key] === true;
+    pill.classList.toggle('bustr-on', on);
+    pill.setAttribute('aria-checked', on ? 'true' : 'false');
+  }
+
   function renderEasyActionButtons() {
     if (window.location.pathname !== '/jailview.php') return;
     const us = getUserSettings();
@@ -2936,21 +2988,68 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
       if (!anchor || !anchor.parentNode) return;
       bar = document.createElement('div');
       bar.className = 'bustr-easy-bar';
-      const lbl = document.createElement('span');
+      anchor.parentNode.insertBefore(bar, anchor);
+    }
+
+    // --- Each control is created once and reused; a stable order is re-applied at the
+    //     end of every pass (appendChild moves the node), so the bar self-heals if Torn
+    //     re-renders the header, no matter which controls are present this pass. ---
+
+    // BUSTR label.
+    let lbl = bar.querySelector('.bustr-easy-label');
+    if (!lbl) {
+      lbl = document.createElement('span');
       lbl.className = 'bustr-easy-label';
       lbl.textContent = 'BUSTR';
       bar.appendChild(lbl);
-      anchor.parentNode.insertBefore(bar, anchor);
     }
-    // Status span pinned to the far right (margin-left:auto), always last.
+
+    // Quick Bust / Quick Bail toggle pills (always shown). Moved here from the settings
+    // panel so the opt-in confirm-skip mode is a one-tap flip on the jail page itself.
+    const quickPill = (key, label) => {
+      const cls = 'bustr-quick-' + (key === 'quickBust' ? 'bust' : 'bail'); // stable handle
+      let p = bar.querySelector('.' + cls);
+      if (!p) {
+        p = document.createElement('span');
+        p.className = 'bustr-quick-toggle ' + cls;
+        p.textContent = label;
+        p.setAttribute('role', 'switch');
+        p.addEventListener('click', () => {
+          updateSetting(key, getUserSettings()[key] !== true);
+          applyQuickActions();      // repaint the row link highlights immediately
+          syncQuickPill(p, key);
+        });
+        bar.appendChild(p);
+      }
+      syncQuickPill(p, key);
+      return p;
+    };
+    const pillBust = quickPill('quickBust', 'Quick Bust');
+    const pillBail = quickPill('quickBail', 'Quick Bail');
+
+    // "?" explainer for the Quick pills - reuses the panel's shared help card.
+    let help = bar.querySelector('.bustr-q');
+    if (!help) {
+      help = document.createElement('span');
+      help.className = 'bustr-q';
+      help.textContent = '?';
+      help.title = 'What do these do?';
+      help.addEventListener('click', () => {
+        ensureSettingsPanelDom(); // guarantees #bustr-help exists before showHelp runs
+        showHelp('quickactions', help);
+      });
+      bar.appendChild(help);
+    }
+
+    // Status span pinned to the far right (margin-left:auto).
     let statusEl = bar.querySelector('.bustr-easy-status');
     if (!statusEl) {
       statusEl = document.createElement('span');
       statusEl.className = 'bustr-easy-status';
       bar.appendChild(statusEl);
     }
-    // Refresh button: always present, positioned just left of the status (i.e. to the
-    // right of the Easy buttons) for convenient bust-then-refresh use.
+
+    // Refresh button: always present.
     let refresh = bar.querySelector('.bustr-jail-refresh');
     if (!refresh) {
       refresh = document.createElement('span');
@@ -2959,9 +3058,9 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
       refresh.title = 'Refresh the jail list';
       refresh.addEventListener('click', refreshJailList);
     }
-    bar.insertBefore(refresh, statusEl); // (re)position before status each pass
-    // Easy buttons: inserted just left of the refresh button.
-    const sync = (kind, label, want) => {
+
+    // Easy buttons: present only when their (consent-gated) setting is on.
+    const easyBtn = (kind, label, want) => {
       const cls = 'bustr-easy-' + kind;
       let b = bar.querySelector('.' + cls);
       if (want && !b) {
@@ -2971,13 +3070,19 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
         b.title = 'One tap = one ' + kind + ' request for the ' +
           (kind === 'bust' ? 'best-odds' : 'cheapest') + ' shown target (BUSTR sends it)';
         b.addEventListener('click', () => fireEasyAction(kind, b, statusEl));
-        bar.insertBefore(b, refresh);
       } else if (!want && b) {
         b.remove();
+        b = null;
       }
+      return b;
     };
-    sync('bust', 'Easy Bust', us.easyBust === true);
-    sync('bail', 'Easy Bail', us.easyBail === true);
+    const easyBust = easyBtn('bust', 'Easy Bust', us.easyBust === true);
+    const easyBail = easyBtn('bail', 'Easy Bail', us.easyBail === true);
+
+    // Re-apply the canonical left-to-right order every pass.
+    // [BUSTR] [Quick Bust] [Quick Bail] [?] [Easy Bust] [Easy Bail] [↻] .... [status]
+    [lbl, pillBust, pillBail, help, easyBust, easyBail, refresh, statusEl]
+      .forEach((el) => { if (el) bar.appendChild(el); });
   }
 
   // Compact vs full nav badge, toggled by a single body class (the badge exists on
@@ -3228,8 +3333,6 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     byId('bustr-set-refresh').value = us.statsRefreshRate || DEFAULT_REFRESH_SECONDS;
     byId('bustr-set-hardness').checked = us.showHardnessScore !== false;
     byId('bustr-set-sort').checked = us.sortByHardness !== false;
-    byId('bustr-set-quickbust').checked = us.quickBust === true;
-    byId('bustr-set-quickbail').checked = us.quickBail === true;
     byId('bustr-set-easybust').checked = us.easyBust === true;
     byId('bustr-set-easybail').checked = us.easyBail === true;
     byId('bustr-set-success').checked = us.showSuccessChance !== false;
@@ -3576,7 +3679,7 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
   function hideHelp() {
     const card = document.getElementById('bustr-help');
     if (card) card.classList.remove('bustr-open');
-    document.querySelectorAll('#bustr-settings-panel .bustr-q.bustr-q-on')
+    document.querySelectorAll('.bustr-q.bustr-q-on')
       .forEach((el) => el.classList.remove('bustr-q-on'));
   }
 
@@ -3661,8 +3764,6 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
       <div class="bustr-section">Jail list display ${q('display')}</div>
       <div class="bustr-row"><label>Show hardness number ${q('hardness')}</label><input type="checkbox" id="bustr-set-hardness"></div>
       <div class="bustr-row"><label>Sort easiest-first ${q('sort')}</label><input type="checkbox" id="bustr-set-sort"></div>
-      <div class="bustr-row"><label>Quick bust (skip confirm) ${q('quickactions')}</label><input type="checkbox" id="bustr-set-quickbust"></div>
-      <div class="bustr-row"><label>Quick bail (skip confirm)</label><input type="checkbox" id="bustr-set-quickbail"></div>
       <div class="bustr-row"><label>Easy bust (BUSTR fires it) ${q('easyactions')}</label><input type="checkbox" id="bustr-set-easybust"></div>
       <div class="bustr-row"><label>Easy bail (BUSTR fires it)</label><input type="checkbox" id="bustr-set-easybail"></div>
       <div class="bustr-row"><label>Show success % ${q('success')}</label><input type="checkbox" id="bustr-set-success"></div>
@@ -3768,8 +3869,6 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     byId('bustr-set-refresh').addEventListener('change', (e) => { updateSetting('statsRefreshRate', Math.max(15, numOr(e.target, DEFAULT_REFRESH_SECONDS))); startRefreshLoops(); });
     byId('bustr-set-hardness').addEventListener('change', (e) => { updateSetting('showHardnessScore', e.target.checked); applySettings(); });
     byId('bustr-set-sort').addEventListener('change', (e) => { updateSetting('sortByHardness', e.target.checked); applySettings(); });
-    byId('bustr-set-quickbust').addEventListener('change', (e) => { updateSetting('quickBust', e.target.checked); applyQuickActions(); });
-    byId('bustr-set-quickbail').addEventListener('change', (e) => { updateSetting('quickBail', e.target.checked); applyQuickActions(); });
     byId('bustr-set-easybust').addEventListener('change', (e) => { handleEasyToggle('easyBust', e.target); });
     byId('bustr-set-easybail').addEventListener('change', (e) => { handleEasyToggle('easyBail', e.target); });
     byId('bustr-set-success').addEventListener('change', (e) => { updateSetting('showSuccessChance', e.target.checked); applySettings(); });
