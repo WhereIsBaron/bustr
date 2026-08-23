@@ -1973,12 +1973,13 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
 .user-info-list-wrap > li a.bustr-quick-on .bust-icon,
 .user-info-list-wrap > li a.bustr-quick-on .bail-icon {filter: hue-rotate(55deg) saturate(1.3);}
 
-/* Refresh control on the jail list header. */
+/* Refresh control on the jail list header. (Base values target Torn's LIGHT theme;
+   the .dark-mode block further down restores the dark-tuned colours.) */
 .bustr-easy-bar .bustr-jail-refresh {
-  cursor: pointer; color: #8ca05a; font-size: 16px; line-height: 1;
+  cursor: pointer; color: #6f8340; font-size: 16px; line-height: 1;
   user-select: none; transition: transform 0.2s ease; vertical-align: middle;
 }
-.bustr-easy-bar .bustr-jail-refresh:hover {transform: rotate(90deg); color: #b6cc7a;}
+.bustr-easy-bar .bustr-jail-refresh:hover {transform: rotate(90deg); color: #4b5c28;}
 
 /* Easy Bust / Easy Bail action bar (opt-in; BUSTR fires one request per tap).
    Its own full-width bar under the jail filter, so the buttons have room and
@@ -1986,11 +1987,11 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
 .bustr-easy-bar {
   display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
   padding: 6px 12px; margin: 0;
-  background: rgba(0, 0, 0, 0.22); border-bottom: 1px solid rgba(0, 0, 0, 0.35);
+  background: rgba(0, 0, 0, 0.06); border-bottom: 1px solid rgba(0, 0, 0, 0.14);
 }
 .bustr-easy-bar .bustr-easy-label {
   font-size: 10px; font-weight: 800; letter-spacing: 0.5px;
-  color: #8ca05a; text-transform: uppercase;
+  color: #5a6b34; text-transform: uppercase;
 }
 .bustr-easy-btn {
   cursor: pointer; font-size: 12px; font-weight: 700; white-space: nowrap;
@@ -2008,11 +2009,11 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
    relabels your OWN bust/bail link so your single click skips Torn's confirm step. */
 .bustr-easy-bar .bustr-quick-toggle {
   cursor: pointer; font-size: 12px; font-weight: 700; white-space: nowrap;
-  color: #9aa87d; background: transparent; border: 1px solid #4b5738; border-radius: 5px;
+  color: #566b30; background: transparent; border: 1px solid #a9bd82; border-radius: 5px;
   padding: 3px 10px; user-select: none; line-height: 1.2;
   transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
 }
-.bustr-easy-bar .bustr-quick-toggle:hover {border-color: #6f8340; color: #c2d69a;}
+.bustr-easy-bar .bustr-quick-toggle:hover {border-color: #6f8340; color: #3f4f22;}
 .bustr-easy-bar .bustr-quick-toggle.bustr-on {
   color: #dcecb4; background: #4b5738; border-color: #8ca05a;
   box-shadow: 0 0 0 1px #8ca05a inset;
@@ -2022,10 +2023,24 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
 }
 .bustr-easy-bar .bustr-quick-toggle.bustr-on::before {content: '\\2611'; opacity: 1;}
 .bustr-easy-status {
-  font-size: 11px; color: #cfe0a0; margin-left: auto;
+  font-size: 11px; color: #4b5738; margin-left: auto;
   max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .user-info-list-wrap > li.bustr-easy-done {opacity: 0.5;}
+
+/* Dark theme: restore the dark-tuned bar colours. The base rules above target Torn's
+   default LIGHT theme; these apply only when a .dark-mode ancestor is present, so the
+   bar reads well in both. The solid pills (ON state), Easy buttons and "?" chip already
+   sit well on either background, so only the translucent fill and the text need swapping. */
+.dark-mode .bustr-easy-bar {
+  background: rgba(0, 0, 0, 0.22); border-bottom-color: rgba(0, 0, 0, 0.35);
+}
+.dark-mode .bustr-easy-bar .bustr-easy-label {color: #8ca05a;}
+.dark-mode .bustr-easy-bar .bustr-jail-refresh {color: #8ca05a;}
+.dark-mode .bustr-easy-bar .bustr-jail-refresh:hover {color: #b6cc7a;}
+.dark-mode .bustr-easy-bar .bustr-quick-toggle:not(.bustr-on) {color: #9aa87d; border-color: #4b5738;}
+.dark-mode .bustr-easy-bar .bustr-quick-toggle:not(.bustr-on):hover {color: #c2d69a; border-color: #6f8340;}
+.dark-mode .bustr-easy-status {color: #cfe0a0;}
 
 /* Settings button + panel */
 /* Sidebar entry (primary). This is a clone of a native row (#nav-jail), and the
