@@ -6,6 +6,41 @@ contribution branch, proposed by The_Baron [1467784].
 
 ---
 
+## v2.22.2
+- [CHANGED] Your success % is now tailored to how strong a buster you actually
+  are, instead of being pulled toward one shared average. BUSTR shapes its odds
+  with a "shrink" that draws every prediction toward a common centre. Checked
+  against real pooled outcomes across players, that single shared adjustment was
+  hiding a lopsided error: the overall average looked well calibrated only
+  because opposite mistakes were cancelling out. Split by skill, the model was
+  quietly over-promising to lower-perked players and under-selling strong
+  busters by around 16 points - showing a proven buster ~50% on a target they
+  really win ~66% of the time. Under-selling is the harmful direction, because a
+  number that is too low makes you skip busts you would have won. The model now
+  adds a lift based on how far your own perks (and, once it has learned them,
+  your real results) put you above a no-perk baseline, so a strong buster sees
+  honestly higher odds and a weaker one is not flattered. On the real data this
+  cut the model's Brier error from 0.224 to 0.211 and roughly halved the spread
+  between the best- and worst-calibrated skill groups (27 points down to 17),
+  bringing the under-sold high end from +16 to +4.
+- [CHANGED] Self-calibration can now recognise a genuinely strong buster. The
+  ceiling on the curve BUSTR learns from your own 100+ logged busts was pinned
+  to where a full-perk player tops out, so anyone whose real results were better
+  than "fully perked" got clipped to that cap and shown lower odds than they
+  earn. The cap is raised so a proven strong buster's real success curve can be
+  reflected, rather than being held down to the average maxed player.
+- [NOTE] This changes only how the raw success number is presented - not the
+  ranking of targets, not penalty, and nothing BUSTR does on the page. It comes
+  straight from the "improve BUSTR from shared data" loop the cloud-sync consent
+  describes, and follows the same discipline as before: the constants are fixed
+  for everyone (not secretly fitted to you), validated against real cross-player
+  outcomes, and set deliberately on the conservative side because the
+  strong-buster sample is still small. They will be refined as more data
+  accumulates. One honest limit worth stating: the separate "+ success chance"
+  perk and the busting-skill perks almost always travel together in the data, so
+  BUSTR credits your total perk-derived skill rather than trying to price that
+  one perk on its own.
+
 ## v2.22.0
 - [CHANGED] Quick Bust / Quick Bail moved out of Settings and onto the jail
   page itself, as tap-to-flip pills in the BUSTR bar above the captive list.

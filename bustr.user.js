@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BUSTR: Jail Bust Assistant + PDA (Baron)
 // @namespace    http://torn.city.com.dot.com.com
-// @version      2.22.0
+// @version      2.22.2
 // @description  Shows your success odds on every jailed target, and how many busts you can make before failure gets likely
 // @updateURL    https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
 // @downloadURL  https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
@@ -65,7 +65,7 @@
   ////////////////////////////////////////////////////////////////////////////
 
   const DEBUG = false; // set true while debugging to re-enable console logs
-  const SCRIPT_VERSION = '2.22.0'; // keep in sync with the @version header above - stamped into diagnostic exports
+  const SCRIPT_VERSION = '2.22.2'; // keep in sync with the @version header above - stamped into diagnostic exports
 
   // Penalty model. Matches the documented in-game mechanic: each bust adds a
   // penalty that decays hyperbolically as P0 / (1 + c*t), losing half at 10h and
@@ -214,6 +214,33 @@
   const PRED_SHRINK_K = 0.40;    // fraction of the raw spread that survives (was 0.65; refit on pooled cloud data, v2.20.0)
   const PRED_SHRINK_CENTER = 45; // %, the pivot predictions are pulled toward
 
+  // --- Cal-aware success lift (v2.22.2) ---
+  // The shrink above is a SINGLE global reshape: it pulls every prediction toward one
+  // centre no matter how skilled the player is. Segmenting the pooled cloud outcomes by
+  // the skill multiplier (`cal`) showed that is not enough. The aggregate looked well
+  // calibrated only because opposite cohort errors cancelled; split by cohort the bias
+  // was monotonic in cal - low-cal players were over-promised, and high-cal players were
+  // UNDER-sold by ~16 points. Under-selling is the harmful direction here: a strong
+  // buster shown ~50% when they really succeed ~66% skips busts they would have won.
+  // A single global constant cannot correct a cal-DEPENDENT bias by construction, so the
+  // correction itself has to depend on cal. This shifts the post-shrink prediction by how
+  // far the player's calibration sits above a perkless pivot. End-to-end refit on the real
+  // data (each self-calibrating user's cal re-fit under this exact formula - the actual
+  // production behaviour) cut pooled Brier 0.224 -> 0.211 and the cohort spread from 27 to
+  // 17 points, pulling the under-sold high end from +16 to +4, at ~1pt cost to the already
+  // over-promised low end. That low-end bias lives in the BASE curve, not this term: an
+  // asymmetric "lift only" variant was tested and made the low end worse while dragging
+  // everyone over-conservative, so the plain symmetric form is kept.
+  //
+  // IDENTIFIABILITY: the "+success chance" perk and the busting-skill perks are collinear
+  // in the data (players who have one tend to have the others), so a coefficient for the
+  // success perk ALONE is not estimable. This credits total perk-derived skill through
+  // cal, which is the quantity the data can actually identify. Fit on only 17
+  // self-calibration-eligible users, so K is the conservative knee of the fit, not its
+  // steepest point; refine as more per-user data accumulates - same discipline as the shrink.
+  const SUCCESS_LIFT_K = 18;        // percentage points of lift per 1.0 of cal above the pivot
+  const SUCCESS_LIFT_PIVOT = 0.85;  // no-lift point; matches CAL_NO_PERKS, the perkless baseline
+
   // --- Self-calibration (learns YOUR real success curve from logged outcomes) ---
   // Passive only: built from clicks the player makes and the bust-result text Torn
   // already renders. Never simulates input. See the COMPLIANCE NOTE at the top.
@@ -235,7 +262,7 @@
   // reacting to a real curve rather than to a bad afternoon.
   const SELF_CAL_MIN_SAMPLES = 100;     // don't trust a fit smaller than this (was 15: far too few, it overfit)
   const SELF_CAL_FLOOR = 0.6;           // search/clamp range for the fitted calibration (was 0.3: allowed a pathological collapse)
-  const SELF_CAL_CEILING = 1.4;         // stays near the physically plausible perk range
+  const SELF_CAL_CEILING = 1.7;         // raised from 1.4 in v2.22.2: with the cal-aware lift (see SUCCESS_LIFT_K) a proven strong buster's own outcomes fit a curve above 1.4, and the old ceiling was clipping it - under-selling the exact players it should trust most. Still bounded to a physically plausible perk range.
   const SELF_CAL_STEP = 0.02;           // grid-search resolution
   const PENDING_ATTEMPT_TIMEOUT_MS = 20 * 1000; // discard a click if no result follows in time
 
@@ -869,7 +896,13 @@
     // because it corrects both tails and the middle instead of just the bottom.)
     const clamped = Math.max(1, Math.min(100, raw));
     const shrunk = PRED_SHRINK_CENTER + PRED_SHRINK_K * (clamped - PRED_SHRINK_CENTER);
-    return Math.max(1, Math.min(100, shrunk));
+    // Cal-aware lift (v2.22.2): shift by how far skill sits above the perkless pivot.
+    // See SUCCESS_LIFT_K - this corrects a bias the single global shrink cannot, because
+    // it depends on cal. Applied here inside the shared raw fn (not in a display wrapper)
+    // so the self-calibration grid search re-fits cal under the SAME formula the display
+    // uses; the two can never disagree about what the number means.
+    const lift = SUCCESS_LIFT_K * (calibration - SUCCESS_LIFT_PIVOT);
+    return Math.max(1, Math.min(100, shrunk + lift));
   }
 
   // Estimated odds of busting a target of the given hardness right now.
