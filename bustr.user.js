@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BUSTR: Jail Bust Assistant + PDA (Baron)
 // @namespace    http://torn.city.com.dot.com.com
-// @version      2.22.2
+// @version      2.23.0
 // @description  Shows your success odds on every jailed target, and how many busts you can make before failure gets likely
 // @updateURL    https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
 // @downloadURL  https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
@@ -49,7 +49,10 @@
 // request, for the one best target currently shown, to the same jailview.php page.
 // It is still one human tap = one request: no loop, no timer, no auto-repeat, no
 // queue - the button does nothing until you tap it again, and you choose whether
-// and when to tap. BUSTR only chooses WHICH shown target, never WHEN to act. This
+// and when to tap. BUSTR only chooses WHICH shown target, never WHEN to act. (When
+// a bust fails and that captive is still in jail, the "which" it offers on your
+// NEXT tap is that same captive, so a fresh tap retries them until they're busted
+// or out of jail - still one tap, one request; BUSTR never re-fires on its own.) This
 // is the same one-tap-one-request action the ReTorn extension ships, reviewed and
 // confirmed within Torn's 1-click-1-request / same-page rule by a Torn officer
 // (2026-08-18). What must NEVER be added is the automation line above: a timer or
@@ -65,7 +68,7 @@
   ////////////////////////////////////////////////////////////////////////////
 
   const DEBUG = false; // set true while debugging to re-enable console logs
-  const SCRIPT_VERSION = '2.22.2'; // keep in sync with the @version header above - stamped into diagnostic exports
+  const SCRIPT_VERSION = '2.23.0'; // keep in sync with the @version header above - stamped into diagnostic exports
 
   // Penalty model. Matches the documented in-game mechanic: each bust adds a
   // penalty that decays hyperbolically as P0 / (1 + c*t), losing half at 10h and
@@ -2863,6 +2866,14 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
   // YOU choose whether and when to tap. See the COMPLIANCE NOTE at the top.
   let easyActionInFlight = false;
 
+  // Sticky retry (Easy Bust only). When a bust attempt fails but the captive is still
+  // in jail, we remember their Torn XID here so the NEXT tap re-targets that exact
+  // person instead of advancing to the next-best - keep trying the same captive until
+  // they're busted or they leave jail, then move on. Cleared on success, on "gone", or
+  // when the remembered captive can no longer be found in the list. It changes only
+  // WHICH shown target the next tap picks; it never fires on its own (see COMPLIANCE).
+  let easyRetryId = null;
+
   // Best-effort read of the captive's name from their jail row (fallback for the
   // status line if the response text doesn't carry it).
   function jailRowName(li) {
@@ -2873,12 +2884,42 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     return n || null;
   }
 
+  // Read the row's success/hardness overlay into a target descriptor. Shared by the
+  // sticky-retry lookup and the normal best-pick so both report identical fields.
+  function easyTargetFromRow(li, href, id) {
+    const successEl = li.querySelector('.bustr-success-chance');
+    const hardnessEl = li.querySelector('.bustr-hardness-score');
+    const success = successEl ? parseInt(successEl.textContent, 10) : NaN;
+    const hardness = hardnessEl ? parseInt(hardnessEl.textContent, 10) : NaN;
+    return {
+      li, href, id, name: jailRowName(li),
+      success: Number.isFinite(success) ? success : null,
+      hardness: Number.isFinite(hardness) ? hardness : null,
+    };
+  }
+
   // Pick the single best currently-shown target. Bust: highest BUSTR success %.
   // Bail: lowest hardness (cheapest/easiest). Skips rows already actioned this
   // render and rows without the matching link. Returns null if there is none.
+  // Sticky retry (bust only): if a previous tap failed on someone still in jail,
+  // re-offer that exact captive first, falling back to the best-pick once they're
+  // gone from the list. See easyRetryId and the COMPLIANCE NOTE.
   function pickEasyTarget(kind) {
     const linkSel = kind === 'bust' ? "a[href*='step=breakout']" : "a[href*='step=buy']";
     const rows = [...document.querySelectorAll('ul.user-info-list-wrap > li')];
+
+    if (kind === 'bust' && easyRetryId) {
+      for (const li of rows) {
+        if (li.classList.contains('bustr-easy-done')) continue;
+        const link = li.querySelector(linkSel);
+        if (!link) continue;
+        const href = link.getAttribute('href') || '';
+        const m = href.match(/XID=(\d+)/);
+        if (m && m[1] === easyRetryId) return easyTargetFromRow(li, href, easyRetryId);
+      }
+      easyRetryId = null; // remembered captive is no longer in jail: advance normally
+    }
+
     let best = null;
     for (const li of rows) {
       if (li.classList.contains('bustr-easy-done')) continue;
@@ -2887,21 +2928,12 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
       const href = link.getAttribute('href') || '';
       const idMatch = href.match(/XID=(\d+)/);
       if (!idMatch) continue;
-      const successEl = li.querySelector('.bustr-success-chance');
-      const hardnessEl = li.querySelector('.bustr-hardness-score');
-      const success = successEl ? parseInt(successEl.textContent, 10) : NaN;
-      const hardness = hardnessEl ? parseInt(hardnessEl.textContent, 10) : NaN;
+      const t = easyTargetFromRow(li, href, idMatch[1]);
       // Bust wants the highest success %; bail wants the lowest hardness (cheapest).
-      const rank = kind === 'bust'
-        ? (Number.isFinite(success) ? success : -1)
-        : (Number.isFinite(hardness) ? -hardness : -Infinity);
-      if (!best || rank > best.rank) {
-        best = {
-          li, href, rank, name: jailRowName(li),
-          success: Number.isFinite(success) ? success : null,
-          hardness: Number.isFinite(hardness) ? hardness : null,
-        };
-      }
+      t.rank = kind === 'bust'
+        ? (Number.isFinite(t.success) ? t.success : -1)
+        : (Number.isFinite(t.hardness) ? -t.hardness : -Infinity);
+      if (!best || t.rank > best.rank) best = t;
     }
     return best;
   }
@@ -2943,17 +2975,20 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
 
   // A short, clean status line for the bar - never Torn's raw reply text, which
   // can be verbose or even carry HTML. Includes the target's name when known.
-  function easyStatusMessage(kind, outcome, data, name) {
+  function easyStatusMessage(kind, outcome, data, name, willRetry) {
     if (!data) return 'No response from Torn';
     if (outcome.gone) return 'This person is no longer in jail.';
     const verb = kind === 'bust' ? 'busted' : 'bailed';
     if (outcome.success) return name ? name + ' was ' + verb + '.' : (kind === 'bust' ? 'Busted!' : 'Bailed!');
     if (kind === 'bust' && outcome.jailed) return name ? 'Failed to bust ' + name + ' - you got jailed.' : 'Failed - you got jailed';
-    return name ? 'Failed to ' + kind + ' ' + name + '.' : (kind === 'bust' ? 'Bust failed' : 'Bail failed');
+    const base = name ? 'Failed to ' + kind + ' ' + name + '.' : (kind === 'bust' ? 'Bust failed' : 'Bail failed');
+    return willRetry ? base + ' Tap again to retry.' : base;
   }
 
-  // Fire exactly ONE request for the best shown target. Guarded so overlapping
-  // taps cannot double-fire; no retry, no loop, no chaining.
+  // Fire exactly ONE request for the chosen shown target. Guarded so overlapping
+  // taps cannot double-fire; still no timer, loop, or auto-chaining. A failed bust
+  // simply stays selected so your NEXT manual tap retries the same captive (see
+  // easyRetryId) - the script never re-fires without a fresh press.
   async function fireEasyAction(kind, btn, statusEl) {
     if (easyActionInFlight) return;
     const target = pickEasyTarget(kind);
@@ -2987,24 +3022,41 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
       try { data = JSON.parse(raw); } catch (e) { data = null; }
       const outcome = classifyEasyResponse(kind, data || {});
 
-      target.li.classList.add('bustr-easy-done'); // don't re-target the same person on the next tap
       const name = responseName(data) || target.name || null; // prefer Torn's reply, fall back to the row
-      if (statusEl) statusEl.textContent = easyStatusMessage(kind, outcome, data, name);
+
+      // Whether we're finished with this captive. On a clean bust failure where the
+      // captive is still in jail we leave the row eligible and remember them, so the
+      // next tap retries the SAME person; we only advance once they're busted or gone.
+      // Bail (and any non-bust path) keeps the original one-and-done behaviour.
+      let finishedWithTarget = true;
 
       if (kind === 'bust') {
         if (outcome.gone) {
           takePendingAttempt(); // target already left jail: discard, don't log a phantom failure
+          easyRetryId = null;
         } else if (outcome.success) {
           logOutcome(true); // consumes the pending attempt if self-cal recorded one
           setPenaltyScore(getPenaltyScore() + PENALTY_PER_BUST);
           setAvailableBusts(calcAvailableBusts(getPenaltyScore(), getPenaltyThreshold()));
           renderBustrStats({ availableBusts: getAvailableBusts(), penaltyScore: getPenaltyScore() });
           renderBustrColorClass(getAvailableBusts());
+          easyRetryId = null;
         } else if (data) {
           logOutcome(false, { jailed: outcome.jailed });
+          if (outcome.jailed) {
+            easyRetryId = null; // you got jailed - you can't retry until you're out
+          } else {
+            easyRetryId = target.id; // clean fail, still in jail: retry this person next tap
+            finishedWithTarget = false;
+          }
         }
         scheduleGroundTruthResync(); // correct the budget from the real bust log shortly after
       }
+
+      // Mark done only once we're moving on, so a retry target stays eligible (and at
+      // full opacity) for the next tap; done rows are skipped by pickEasyTarget.
+      if (finishedWithTarget) target.li.classList.add('bustr-easy-done');
+      if (statusEl) statusEl.textContent = easyStatusMessage(kind, outcome, data, name, !finishedWithTarget);
     } catch (err) {
       console.error('[BUSTR] Easy action request failed', err);
       if (statusEl) statusEl.textContent = 'Request failed';
@@ -3709,7 +3761,7 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     hardness: ['Hardness number', 'Shows each prisoner\'s hardness score, which is their level multiplied by their remaining jail time plus three hours. Higher means harder to bust.'],
     sort: ['Sort easiest-first', 'Reorders the jail list so the easiest targets sit at the top. Torn\'s own order is by time remaining instead.'],
     quickactions: ['Quick actions', 'Optional. When on, BUSTR relabels Torn\'s own bust/bail link to its no-confirmation variant (the button gets a green highlight) so your single click skips the "are you sure?" step. BUSTR never clicks or busts for you - you still press every button yourself, one click per bust. This is the same mechanism the long-running TornTools extension uses. If you run TornTools, turn its own Quick Bust off to use this - the two act on the same link and conflict. Off by default; leave off if you prefer Torn\'s confirmation.'],
-    easyactions: ['Easy actions', 'Optional and OFF by default. Adds a one-tap "Easy Bust" / "Easy Bail" button to the jail list header. Unlike Quick actions (which only relabel your own click), tapping this makes BUSTR send the request itself for the single best shown target - bust picks the highest success %, bail picks the cheapest. It is strictly one tap = one request, to the same jail page, with no looping or auto-repeat: the button does nothing until you tap it again, and you decide when to tap. Enabling asks for a one-time confirmation. Use at your own discretion.'],
+    easyactions: ['Easy actions', 'Optional and OFF by default. Adds a one-tap "Easy Bust" / "Easy Bail" button to the jail list header. Unlike Quick actions (which only relabel your own click), tapping this makes BUSTR send the request itself for the single best shown target - bust picks the highest success %, bail picks the cheapest. If a bust fails and that person is still in jail, the next tap retries the same person - until they are busted or no longer in jail - then moves on to the next best target. It is strictly one tap = one request, to the same jail page, with no looping or auto-repeat: the button does nothing until you tap it again, and you decide when to tap. Enabling asks for a one-time confirmation. Use at your own discretion.'],
     success: ['Show success %', 'Shows your estimated chance of busting each prisoner, from their hardness and your current penalty.'],
     sccolour: ['Success % colours', 'Colour thresholds for the per-target percentage: green at or above the first number, red below the second, orange in between. Display only, they never change the percentage itself.'],
     model: ['Success % model', 'These change the actual predicted number. When more than one applies the priority is: manual override wins, then self-calibration once it has enough data, then the perk baseline.'],
