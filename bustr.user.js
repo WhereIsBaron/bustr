@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BUSTR: Jail Bust Assistant + PDA (Baron)
 // @namespace    http://torn.city.com.dot.com.com
-// @version      2.23.0
+// @version      2.23.1
 // @description  Shows your success odds on every jailed target, and how many busts you can make before failure gets likely
 // @updateURL    https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
 // @downloadURL  https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
@@ -63,7 +63,7 @@
   ////////////////////////////////////////////////////////////////////////////
 
   const DEBUG = false; // true re-enables console logs
-  const SCRIPT_VERSION = '2.23.0'; // keep in sync with @version above
+  const SCRIPT_VERSION = '2.23.1'; // keep in sync with @version above
 
   // Penalty model (documented in-game mechanic): each bust adds a penalty decaying
   // hyperbolically as P0/(1+c*t) - half gone at 10h, zero past 72h. PENALTY_PER_BUST
@@ -1693,8 +1693,18 @@
 .bustr-mobile-badge .bustr-pct-line {display: block; font-size: 0.75em; opacity: 0.85; white-space: nowrap;}
 
 /* "Jail page only" scope: hide the badge and neutralize colouring off the jail page,
-   toggled purely via body class (no DOM changes). */
-body.bustr-inactive .bustr-stats {display: none;}
+   toggled purely via body class (no DOM changes). The BUSTR nav column / sidebar entry
+   itself stays (it's the settings trigger, reachable everywhere - same as desktop), only
+   the numbers/colours go.
+   The mobile/PDA badge lives inside BUSTR's own nav column (#bustr-sidebar-btn), whose
+   "#bustr-sidebar-btn .bustr-mobile-badge" display rule is an ID selector and so OUTRANKS a
+   plain ".bustr-stats" hide - so on PDA the badge stayed visible off the jail page and
+   jail-only "didn't work" (worked on desktop, where the badge sits in #nav-jail with no
+   competing display rule). Match that ID specificity for both slots the badge can occupy
+   (own column, or the #nav-jail fallback) and add !important so the hide always wins. */
+body.bustr-inactive .bustr-stats,
+body.bustr-inactive #bustr-sidebar-btn .bustr-mobile-badge,
+body.bustr-inactive #nav-jail .bustr-mobile-badge {display: none !important;}
 body.bustr-inactive.bustr--green,
 body.bustr-inactive.bustr--orange,
 body.bustr-inactive.bustr--red {--color: inherit;}
@@ -2885,6 +2895,11 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
   function applySettings() {
     applyBadgeDetail(); // reflect a compact/full badge toggle immediately
     recalcLocally(); // recomputes available busts + nav colour (limits, custom threshold)
+    // Reflect an "Active on" scope change (Anywhere <-> Jail page only) right away, not on the
+    // next interval tick up to statsRefreshRate seconds later - toggling bustr-inactive here
+    // hides/shows the badge the instant the dropdown changes. Cheap body-class toggle; no-op in
+    // "always" mode. recalcLocally above may have repainted the badge, but the class still hides it.
+    applyActiveScope(window.location.pathname === '/jailview.php');
     if (window.location.pathname === '/jailview.php') {
       applyJailVisibility();
       renderJailRows();
