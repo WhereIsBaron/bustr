@@ -1,4 +1,16 @@
 <p>Patch notes for BUSTR, a jail-busting helper userscript for Torn. Original script by Adobi &amp; Ironhydedragon (MIT licensed). Entries below cover this contribution branch, proposed by The_Baron [1467784].</p>
+<p><strong>v2.23.1</strong></p>
+<ul>
+<li>[FIX] <strong>"Active on: Jail page only" now works on Torn PDA, the same as on desktop.</strong> Set to jail-only, BUSTR is meant to disappear off the jail page (nav badge and colours hidden), leaving only its settings entry. On desktop it did; on PDA the busts-left/penalty badge stayed visible everywhere. The cause was a CSS specificity clash - on PDA the badge sits inside BUSTR's own nav column, whose layout rule is an ID selector that outranked the plain "hide" rule, so the badge was never actually hidden. The hide rule now matches that specificity, so jail-only truly hides the badge off the jail page on PDA too. The BUSTR nav column itself stays (it is how you reach Settings), exactly like the desktop sidebar entry.
+</li>
+<li>[FIX] <strong>Switching the "Active on" setting now takes effect immediately.</strong> Changing between "Anywhere" and "Jail page only" used to wait for the next refresh tick (up to your refresh-rate seconds) before the badge showed or hid; it now applies the moment you change the dropdown, on both desktop and PDA.
+</li>
+</ul>
+<p><strong>v2.23.0</strong></p>
+<ul>
+<li>[CHANGED] <strong>Easy Bust now sticks with a failed target instead of skipping to the next person.</strong> Before, one tap busted the best-odds captive and then moved on regardless of the result - so if the bust failed, your next tap jumped to someone else and left the one you wanted still in jail. Now, when an Easy Bust fails and that captive is still jailed, the next tap retries the <em>same</em> person, and keeps offering them until they are busted or no longer in jail - only then does it advance to the next best target. The failed captive's row stays highlighted (not dimmed) and the status line reads "Failed to bust X. Tap again to retry." This is still strictly <strong>one tap = one request</strong>: nothing loops, repeats, or fires on its own - the retry only changes <em>which</em> captive your next manual tap targets, never <em>when</em> BUSTR acts. Bust them, or get jailed on the attempt, and the retry clears. (Easy Bail is unchanged - a bail "fail" usually means gone or unaffordable, where retrying wouldn't help.)
+</li>
+</ul>
 <p><strong>v2.22.2</strong></p>
 <ul>
 <li>[CHANGED] <strong>Success % is now tailored to how strong a buster you are.</strong> Against real pooled outcomes, the old single "shrink" was over-promising to low-perk players and under-selling strong busters by ~16 points (showing ~50% on targets they win ~66% of the time), which makes strong busters skip busts they would win. It now lifts the number by how far your perks and results put you above the no-perk baseline. On the data this cut Brier error from 0.224 to 0.211 and roughly halved the skill-group spread (27 to 17 points).
