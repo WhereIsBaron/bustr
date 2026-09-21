@@ -6,6 +6,38 @@ contribution branch, proposed by The_Baron [1467784].
 
 ---
 
+## v2.23.1
+- [FIX] "Active on: Jail page only" now works on Torn PDA, the same as on
+  desktop. Set to jail-only, BUSTR is meant to disappear off the jail page (nav
+  badge and colours hidden), leaving only its settings entry - on desktop it
+  did, but on PDA the busts-left/penalty badge stayed visible everywhere. The
+  cause was a CSS specificity clash: on PDA the badge sits inside BUSTR's own
+  nav column, whose layout rule is an ID selector that outranked the plain
+  class-based "hide" rule, so the badge was never actually hidden. The hide rule
+  now matches that specificity, so jail-only truly hides the badge off the jail
+  page on PDA too. The nav column itself stays - it's how you reach Settings,
+  exactly like the desktop sidebar entry.
+- [FIX] Switching the "Active on" setting now takes effect immediately. Changing
+  between "Anywhere" and "Jail page only" used to wait for the next refresh tick
+  (up to your refresh-rate seconds) before the badge showed or hid; it now
+  applies the moment you change the dropdown, on both desktop and PDA.
+
+## v2.23.0
+- [CHANGED] Easy Bust now sticks with a failed target instead of skipping to the
+  next person. Before, one tap busted the best-odds captive and then moved on
+  regardless of the result - so if the bust failed, your next tap jumped to
+  someone else and left the one you wanted still sitting in jail. Now, when an
+  Easy Bust fails and that captive is still in jail, the next tap retries the
+  same person, and keeps offering them until they're either busted or no longer
+  in jail - only then does it advance to the next best target. The failed
+  captive's row stays highlighted (not dimmed) so you can see who's being
+  retried, and the status line reads "Failed to bust X. Tap again to retry."
+  This is still strictly one tap = one request: nothing loops, repeats, or fires
+  on its own - the retry only changes which captive your next tap targets, never
+  when BUSTR acts. If you get jailed, or bust them successfully, the retry
+  clears and you move on. (Easy Bail is unchanged - a bail "fail" usually means
+  gone or unaffordable, where retrying wouldn't help.)
+
 ## v2.22.2
 - [CHANGED] Your success % is now tailored to how strong a buster you actually
   are, instead of being pulled toward one shared average. BUSTR shapes its odds
