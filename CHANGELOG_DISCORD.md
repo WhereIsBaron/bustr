@@ -6,6 +6,32 @@ contribution branch, proposed by The_Baron [1467784].
 
 ---
 
+## v2.24.0
+- [CHANGED] Success % is recalibrated on the largest dataset yet (7879
+  reconstructable outcomes across 63 players, 30 self-calibrating - about 6x the
+  last refit), fixing a skill tilt at the ends of the range. On average it was
+  already well calibrated - shown 62.3% vs actual 61.5% - but split by skill it
+  still over-promised the weakest busters and under-sold the strongest. The
+  biggest error was self-calibration's floor: the 11 weakest self-calibrating
+  players were pinned at the old 0.6 clamp and shown ~56% on busts they really
+  win ~43%. Two changes fix it - the self-calibration bounds widen (floor 0.6 ->
+  0.45, ceiling 1.7 -> 1.8) so no player is clamped anymore, and the cal-aware
+  skill lift is steepened (18 -> 24) so strong and weak busters separate
+  honestly. End to end this halves the spread between the best- and
+  worst-calibrated skill groups (16.3 -> 8.4 points) and cuts held-out error
+  (Brier 0.2033 -> 0.1958). If you bust a lot, your odds will spread a little
+  more - strong busters read higher, weaker ones lower - and match your real
+  results more closely.
+- [NOTE] This changes only how the success number is presented - not the ranking
+  of targets, not penalty, nothing BUSTR does on the page. Same "improve BUSTR
+  from shared data" loop the cloud-sync consent describes, same discipline:
+  constants fixed for everyone (not per player), and validated out-of-sample by
+  re-fitting each player's calibration on half their own busts and scoring the
+  other half. The old high 0.6 floor guarded against a "collapse" at 0.3 that
+  only happened back when self-calibration trusted 15 samples; the 100-sample
+  minimum guards it now. Penalty saturation stays at 95% - lower cut-offs only
+  made calibration worse.
+
 ## v2.23.1
 - [FIX] "Active on: Jail page only" now works on Torn PDA, the same as on
   desktop. Set to jail-only, BUSTR is meant to disappear off the jail page (nav

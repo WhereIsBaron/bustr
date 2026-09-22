@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BUSTR: Jail Bust Assistant + PDA (Baron)
 // @namespace    http://torn.city.com.dot.com.com
-// @version      2.23.1
+// @version      2.24.0
 // @description  Shows your success odds on every jailed target, and how many busts you can make before failure gets likely
 // @updateURL    https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
 // @downloadURL  https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
@@ -63,7 +63,7 @@
   ////////////////////////////////////////////////////////////////////////////
 
   const DEBUG = false; // true re-enables console logs
-  const SCRIPT_VERSION = '2.23.1'; // keep in sync with @version above
+  const SCRIPT_VERSION = '2.24.0'; // keep in sync with @version above
 
   // Penalty model (documented in-game mechanic): each bust adds a penalty decaying
   // hyperbolically as P0/(1+c*t) - half gone at 10h, zero past 72h. PENALTY_PER_BUST
@@ -147,18 +147,21 @@
   const PRED_SHRINK_K = 0.40;    // fraction of raw spread that survives (was 0.65; refit v2.20.0)
   const PRED_SHRINK_CENTER = 45; // %, the pivot predictions are pulled toward
 
-  // --- Cal-aware success lift (v2.22.2) ---
+  // --- Cal-aware success lift (v2.22.2; K raised v2.24.0) ---
   // The shrink is a single global reshape and can't fix a skill-DEPENDENT bias:
   // segmenting pooled outcomes by cal showed low-cal players over-promised and high-cal
   // UNDER-sold by ~16 points (the harmful direction - a strong buster shown ~50% who
   // really wins ~66% skips busts). This shifts the post-shrink prediction by how far the
-  // player's cal sits above a perkless pivot. End-to-end refit cut pooled Brier 0.224 ->
-  // 0.211 and cohort spread 27 -> 17 pts, high end +16 -> +4. Symmetric form kept (a
-  // lift-only variant made the low end worse).
+  // player's cal sits above a perkless pivot. Symmetric form kept (a lift-only variant made
+  // the low end worse).
   // IDENTIFIABILITY: the "+success chance" perk and busting-skill perks are collinear, so
-  // this credits total perk-derived skill via cal, not the success perk alone. Fit on only
-  // 17 users, so K is the conservative knee; refine as per-user data accumulates.
-  const SUCCESS_LIFT_K = 18;        // points of lift per 1.0 of cal above the pivot
+  // this credits total perk-derived skill via cal, not the success perk alone.
+  // v2.22.2 shipped K=18 fit on 17 users (Brier 0.224 -> 0.211, cohort spread 27 -> 17 pts).
+  // v2.24.0 re-fit on 7879 reconstructable outcomes (63 users, 30 self-fit) raised K 18 -> 24,
+  // with the wider self-cal bounds below: end-to-end this cut the strong cohort's under-sell
+  // +6.0 -> +3.2 and halved the cohort fan 16.3 -> 8.4, at held-out Brier 0.2033 -> 0.1958
+  // (fit cal on half of each user's rows, score the other half - it generalises, not overfit).
+  const SUCCESS_LIFT_K = 24;        // points of lift per 1.0 of cal above the pivot (was 18; v2.24.0)
   const SUCCESS_LIFT_PIVOT = 0.85;  // no-lift point; matches CAL_NO_PERKS
 
   // --- Self-calibration (learns YOUR real success curve from logged outcomes) ---
@@ -174,8 +177,14 @@
   // let it "explain" penalty-caused failures by making hardness brutal. So: floor/ceiling
   // near the plausible perk range, and a sample count high enough to react to a real curve.
   const SELF_CAL_MIN_SAMPLES = 100;     // don't trust a smaller fit (was 15: overfit)
-  const SELF_CAL_FLOOR = 0.6;           // fitted-cal clamp floor (was 0.3: allowed a pathological collapse)
-  const SELF_CAL_CEILING = 1.7;         // raised from 1.4 (v2.22.2): with the cal-aware lift a proven strong buster fits above 1.4, and the old ceiling clipped it. Still a plausible perk range.
+  // v2.24.0 widened this clamp on 7879 reconstructable outcomes (63 users, 30 self-fit): at
+  // floor 0.6 the 11 weakest self-fitters were pinned UP (real ~43% shown ~56% - the single
+  // largest miscalibration in the data), and at ceiling 1.7 the strongest were pinned DOWN.
+  // Widening to 0.45/1.8 clips NO self-fit user on current data and halved the low cohort's
+  // over-sell (-10.3 -> -5.2). The old "0.3 = pathological collapse" risk was a MIN_SAMPLES=15
+  // artefact; the 100-sample gate now guards it, so 0.45 is safe here. Re-widen as data grows.
+  const SELF_CAL_FLOOR = 0.45;          // fitted-cal clamp floor (was 0.3, then 0.6; 0.45 v2.24.0)
+  const SELF_CAL_CEILING = 1.8;         // fitted-cal clamp ceiling (1.4 -> 1.7 v2.22.2 -> 1.8 v2.24.0)
   const SELF_CAL_STEP = 0.02;           // grid-search resolution
   const PENDING_ATTEMPT_TIMEOUT_MS = 20 * 1000; // discard a click if no result follows in time
 
