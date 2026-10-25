@@ -6,6 +6,20 @@ contribution branch, proposed by The_Baron [1467784].
 
 ---
 
+## v2.24.1
+- [CHANGED] The jail-list refresh button (the reload arrow) is now a bigger tap
+  target and sits clear of the "?" help chip, so it is much harder to misclick -
+  especially on PDA. It used to be a bare little glyph right next to the small
+  "?" explainer, so with Easy Bust/Bail off (the default) the two sat side by
+  side and it was easy to tap "?" by accident while reloading the captive list on
+  a phone or PDA. Now the arrow is a padded button that grows to a finger-sized
+  ~40px target on touch devices, and it has moved to the far left of the BUSTR
+  bar (just after the "BUSTR" label), so it no longer shares an edge with the "?".
+  The "?" stays beside the Quick Bust/Bail pills it explains. Behaviour is
+  unchanged: one press = one refresh of the list you are viewing, and it never
+  touches a bust/bail control. Thanks to pepsihivemind [3272892] for the
+  suggestion.
+
 ## v2.24.0
 - [CHANGED] Success % is recalibrated on the largest dataset yet (7879
   reconstructable outcomes across 63 players, 30 self-calibrating - about 6x the
