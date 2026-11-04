@@ -6,6 +6,20 @@ contribution branch, proposed by The_Baron [1467784].
 
 ---
 
+## v2.25.0
+- [CHANGED] "Active on: Jail page only" now hides BUSTR's settings button too, so
+  off the jail page BUSTR disappears completely. Set to jail-only, BUSTR used to
+  hide its badge and colours off the jail page but deliberately leave its own nav
+  entry (the button that opens Settings) in place, so you could still reach
+  Settings from anywhere. In practice that read as the setting not working - the
+  most visible piece of BUSTR, its button in the menu, was still there after you
+  chose "Jail page only". Now jail-only hides BUSTR's nav column / sidebar button
+  as well: off the jail page there is no badge, no colouring and no button, on
+  both desktop and PDA. The button reappears on the jail page itself, which is
+  where you go to change the setting back (open Settings there and switch "Active
+  on" to "Anywhere"). Only BUSTR's own injected entry is hidden; Torn's real Jail
+  link is never touched. "Anywhere (always)" is unchanged.
+
 ## v2.24.3
 - [FIX] Two PDA layout fixes. The refresh button no longer stretches the BUSTR
   bar: on PDA the pill had grown taller as well as wider and towered over the
