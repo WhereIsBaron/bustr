@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BUSTR: Jail Bust Assistant + PDA (Baron)
 // @namespace    http://torn.city.com.dot.com.com
-// @version      2.24.1
+// @version      2.24.2
 // @description  Shows your success odds on every jailed target, and how many busts you can make before failure gets likely
 // @updateURL    https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
 // @downloadURL  https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
@@ -63,7 +63,7 @@
   ////////////////////////////////////////////////////////////////////////////
 
   const DEBUG = false; // true re-enables console logs
-  const SCRIPT_VERSION = '2.24.1'; // keep in sync with @version above
+  const SCRIPT_VERSION = '2.24.2'; // keep in sync with @version above
 
   // Penalty model (documented in-game mechanic): each bust adds a penalty decaying
   // hyperbolically as P0/(1+c*t) - half gone at 10h, zero past 72h. PENALTY_PER_BUST
@@ -1771,17 +1771,21 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
 /* Jail-list-header refresh control. (Base values are for LIGHT theme; .dark-mode below
    restores dark-tuned colours.) */
 .bustr-easy-bar .bustr-jail-refresh {
-  cursor: pointer; color: #6f8340; font-size: 17px; line-height: 1;
-  user-select: none; transition: transform 0.2s ease, background 0.12s ease;
+  cursor: pointer; color: #6f8340; line-height: 1; user-select: none;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
   display: inline-flex; align-items: center; justify-content: center;
-  box-sizing: border-box; min-width: 30px; min-height: 28px;
-  padding: 3px 9px; border-radius: 5px;
+  box-sizing: border-box; min-width: 50px; min-height: 28px;
+  margin-left: 6px; padding: 3px 16px; border-radius: 6px;
+  background: rgba(111, 131, 64, 0.12); border: 1px solid rgba(111, 131, 64, 0.38);
 }
-.bustr-easy-bar .bustr-jail-refresh:hover {transform: rotate(90deg); color: #4b5c28; background: rgba(0, 0, 0, 0.08);}
-/* Touch devices (phones, Torn PDA) get a finger-sized tap target so the reload arrow
-   isn't easy to miss. Pairs with moving it clear of the "?" chip (see renderEasyActionButtons). */
+.bustr-easy-bar .bustr-jail-refresh-glyph {font-size: 18px; line-height: 1; transition: transform 0.2s ease;}
+.bustr-easy-bar .bustr-jail-refresh:hover {background: rgba(111, 131, 64, 0.22); border-color: rgba(111, 131, 64, 0.6); color: #4b5c28;}
+.bustr-easy-bar .bustr-jail-refresh:hover .bustr-jail-refresh-glyph {transform: rotate(90deg);}
+/* The reload pill is a wide, bordered, finger-friendly button; on touch (phones, Torn PDA)
+   it grows further so it is a big target and stays clear of the "?" chip beside it. */
 @media (pointer: coarse) {
-  .bustr-easy-bar .bustr-jail-refresh {min-width: 40px; min-height: 38px; font-size: 20px; padding: 5px 11px;}
+  .bustr-easy-bar .bustr-jail-refresh {min-width: 62px; min-height: 40px; padding: 6px 20px;}
+  .bustr-easy-bar .bustr-jail-refresh-glyph {font-size: 22px;}
 }
 
 /* Easy Bust / Easy Bail action bar (opt-in; one request per tap). Its own full-width bar
@@ -2831,8 +2835,11 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     if (!refresh) {
       refresh = document.createElement('span');
       refresh.className = 'bustr-jail-refresh';
-      refresh.textContent = '↻'; // clockwise arrow
       refresh.title = 'Refresh the jail list';
+      const refreshGlyph = document.createElement('span');
+      refreshGlyph.className = 'bustr-jail-refresh-glyph';
+      refreshGlyph.textContent = '↻'; // clockwise arrow (spins inside the static pill on hover)
+      refresh.appendChild(refreshGlyph);
       refresh.addEventListener('click', refreshJailList);
     }
 
@@ -2856,11 +2863,12 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     const easyBust = easyBtn('bust', 'Easy Bust', us.easyBust === true);
     const easyBail = easyBtn('bail', 'Easy Bail', us.easyBail === true);
 
-    // Re-apply the canonical left-to-right order every pass. The refresh (↻) sits on the far
-    // left, next to the label and clear of the "?" chip, so the "?" is hard to hit by mistake
-    // when reloading (especially on PDA); the "?" stays beside the Quick pills it explains.
-    // [BUSTR] [↻] [Quick Bust] [Quick Bail] [?] [Easy Bust] [Easy Bail] .... [status]
-    [lbl, refresh, pillBust, pillBail, help, easyBust, easyBail, statusEl]
+    // Re-apply the canonical left-to-right order every pass. The refresh (↻) sits on the right
+    // in its long-standing spot, as a wide bordered pill with extra left margin so it is a big,
+    // obvious tap target that is hard to confuse with the "?" chip, even on PDA. The "?" stays
+    // beside the Quick pills it explains.
+    // [BUSTR] [Quick Bust] [Quick Bail] [?] [Easy Bust] [Easy Bail] [↻] .... [status]
+    [lbl, pillBust, pillBail, help, easyBust, easyBail, refresh, statusEl]
       .forEach((el) => { if (el) bar.appendChild(el); });
   }
 

@@ -6,6 +6,21 @@ contribution branch, proposed by The_Baron [1467784].
 
 ---
 
+## v2.24.2
+- [CHANGED] The jail-list refresh button is back in its usual spot on the right
+  of the BUSTR bar, and is now a clearly larger pill you can actually see - not
+  just a bigger invisible hit area. v2.24.1 had moved the reload arrow (↻) to
+  the far left and padded it for touch, but that shifted it away from where it
+  has always lived, and on desktop the extra size was invisible because the
+  touch-only enlargement never kicks in there. This puts ↻ back on the right,
+  after the Easy Bust/Bail buttons, and restyles it as a wider bordered pill
+  with a little extra gap in front, so it reads as a real button and is an easy,
+  obvious target on every device - while still sitting clear of the "?" help
+  chip, so the original PDA misclick stays fixed. It grows larger again on
+  phones and PDA, and the arrow still spins on hover. Behaviour is unchanged:
+  one press = one refresh of the list you are viewing, and it never touches a
+  bust/bail control.
+
 ## v2.24.1
 - [CHANGED] The jail-list refresh button (the reload arrow) is now a bigger tap
   target and sits clear of the "?" help chip, so it is much harder to misclick -
