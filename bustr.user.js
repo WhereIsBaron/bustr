@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BUSTR: Jail Bust Assistant + PDA (Baron)
 // @namespace    http://torn.city.com.dot.com.com
-// @version      2.24.2
+// @version      2.24.3
 // @description  Shows your success odds on every jailed target, and how many busts you can make before failure gets likely
 // @updateURL    https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
 // @downloadURL  https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
@@ -63,7 +63,7 @@
   ////////////////////////////////////////////////////////////////////////////
 
   const DEBUG = false; // true re-enables console logs
-  const SCRIPT_VERSION = '2.24.2'; // keep in sync with @version above
+  const SCRIPT_VERSION = '2.24.3'; // keep in sync with @version above
 
   // Penalty model (documented in-game mechanic): each bust adds a penalty decaying
   // hyperbolically as P0/(1+c*t) - half gone at 10h, zero past 72h. PENALTY_PER_BUST
@@ -1700,6 +1700,18 @@
 }
 /* Fallback form, badge still in #nav-jail: keep it to one compact line. */
 .bustr-mobile-badge .bustr-pct-line {display: block; font-size: 0.75em; opacity: 0.85; white-space: nowrap;}
+/* PDA slide-out / vertical nav: the badge sits in #nav-jail (not BUSTR's own column), laid out
+   in normal flow, so a two-line count-over-% badge makes the Jail row taller than its siblings
+   and stretches the menu. Put the count and % on ONE compact line here so the row height matches
+   the rest of the nav. The stacked two-line layout is kept only in BUSTR's own mobile column
+   (#bustr-sidebar-btn), which is a vertical cell with room for it. */
+#nav-jail .bustr-mobile-badge {
+  display: inline-flex; align-items: baseline; gap: 4px;
+  line-height: 1; white-space: nowrap; vertical-align: middle;
+}
+#nav-jail .bustr-mobile-badge .bustr-pct-line {
+  display: inline; margin-left: 0; font-size: 0.8em; line-height: 1;
+}
 
 /* "Jail page only" scope: hide the badge and neutralize colouring off the jail page,
    toggled purely via body class (no DOM changes). The BUSTR nav column / sidebar entry
@@ -1781,11 +1793,11 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
 .bustr-easy-bar .bustr-jail-refresh-glyph {font-size: 18px; line-height: 1; transition: transform 0.2s ease;}
 .bustr-easy-bar .bustr-jail-refresh:hover {background: rgba(111, 131, 64, 0.22); border-color: rgba(111, 131, 64, 0.6); color: #4b5c28;}
 .bustr-easy-bar .bustr-jail-refresh:hover .bustr-jail-refresh-glyph {transform: rotate(90deg);}
-/* The reload pill is a wide, bordered, finger-friendly button; on touch (phones, Torn PDA)
-   it grows further so it is a big target and stays clear of the "?" chip beside it. */
+/* Touch devices (phones, Torn PDA): keep the reload pill WIDE for an easy finger target, but
+   at the same height as on desktop so it never stretches the BUSTR bar taller than Torn's row.
+   (Only width grows here - an earlier taller min-height stretched the bar on PDA.) */
 @media (pointer: coarse) {
-  .bustr-easy-bar .bustr-jail-refresh {min-width: 62px; min-height: 40px; padding: 6px 20px;}
-  .bustr-easy-bar .bustr-jail-refresh-glyph {font-size: 22px;}
+  .bustr-easy-bar .bustr-jail-refresh {min-width: 64px; padding: 3px 22px;}
 }
 
 /* Easy Bust / Easy Bail action bar (opt-in; one request per tap). Its own full-width bar

@@ -6,6 +6,19 @@ contribution branch, proposed by The_Baron [1467784].
 
 ---
 
+## v2.24.3
+- [FIX] Two PDA layout fixes. The refresh button no longer stretches the BUSTR
+  bar: on PDA the pill had grown taller as well as wider and towered over the
+  Quick/Easy pills, pushing the whole bar taller than Torn's rows. It is now the
+  same height as on desktop (and as the pills beside it), while keeping the
+  wider, easier-to-press length for people to try.
+- [FIX] BUSTR's count + penalty badge on the Jail entry in the PDA navigation
+  menu was stacked over two lines, which made that one menu row taller than
+  every other row. The count and penalty now sit on a single compact line there,
+  so the Jail row lines up with the rest of the menu. BUSTR's own mobile nav
+  column keeps its stacked layout, where there is room for it. Nothing about the
+  numbers or behaviour changes - only how they are laid out on PDA.
+
 ## v2.24.2
 - [CHANGED] The jail-list refresh button is back in its usual spot on the right
   of the BUSTR bar, and is now a clearly larger pill you can actually see - not
