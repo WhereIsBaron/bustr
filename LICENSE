@@ -1,68 +1,21 @@
-BUSTR: Jail Bust Assistant + PDA (Baron) - License
+MIT License
 
-Copyright (c) 2026 The_Baron [1467784]. All rights reserved.
+Copyright (c) Adobi & Ironhydedragon (original BUSTR)
+Copyright (c) 2026 The_Baron [1467784] (this fork)
 
-This script is a fork of BUSTR: Busting Reminder + PDA v1.0.11 by Adobi &
+This project is a fork of BUSTR: Busting Reminder + PDA v1.0.11 by Adobi &
 Ironhydedragon, published as a separate script with their permission. The
 original remains available at https://greasyfork.org/en/scripts/480750
 
-This work has two parts with two different sets of terms. Read both.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-======================================================================
-PART 1 - Original BUSTR (Adobi & Ironhydedragon) - MIT License
-======================================================================
-
-The portions of this script that come from the original BUSTR remain the
-copyright of their authors and stay under the MIT License, which is not
-revoked or narrowed by anything below:
-
-  Copyright (c) Adobi & Ironhydedragon (original BUSTR)
-
-  Permission is hereby granted, free of charge, to any person obtaining a
-  copy of the original software and associated documentation files, to deal
-  in it without restriction, including without limitation the rights to use,
-  copy, modify, merge, publish, distribute, sublicense, and/or sell copies,
-  and to permit persons to whom it is furnished to do so, subject to the
-  above copyright notice and this permission notice being included in all
-  copies or substantial portions.
-
-======================================================================
-PART 2 - This fork's additions (The_Baron [1467784]) - All rights reserved
-======================================================================
-
-Everything added, changed, or newly written by The_Baron [1467784] in this
-fork - including, but not limited to, the bust success prediction model, the
-penalty weighting and its fitting to real outcomes, self-calibration from
-logged outcomes, perk-based calibration, the Easy Bust/Bail flow, the
-settings panel, cloud sync, and all related code, data, and text - is:
-
-  Copyright (c) 2026 The_Baron [1467784]. All rights reserved.
-
-You MAY, at no charge:
-  - Install and run this script as published (for example from GreasyFork or
-    via Torn's userscript ecosystem) for your own personal, non-commercial
-    use.
-
-You MAY NOT, without prior written permission from The_Baron [1467784]:
-  - copy, modify, redistribute, re-publish, sublicense, or mirror this
-    fork's additions;
-  - incorporate them into another script, product, or project; or
-  - create or distribute derivative works based on them.
-
-Permission for such uses may be granted, but ONLY for non-commercial
-purposes, and ONLY after you ask. Commercial use of this fork's additions,
-in any form, is not permitted without a separate written agreement.
-
-To request permission, write to The_Baron [1467784] on Torn (in-game mail)
-and describe what you want to do, before doing it.
-
-(Note: because PART 1 is MIT, the original BUSTR code can still be obtained
-and reused under MIT from its own source above. These fork terms govern only
-The_Baron's additions, not the unmodified original.)
-
-======================================================================
-No warranty
-======================================================================
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,

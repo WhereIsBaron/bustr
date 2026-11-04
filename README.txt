@@ -136,13 +136,7 @@ the original's v1.1.0 and turns out to match the one derived here independently.
 
 LICENSE
 -------
-This work has two parts. The portions that come from the original BUSTR remain
-under the MIT License and the copyright of Adobi and Ironhydedragon. The additions
-in this fork - the success prediction and its calibration, self-calibration, the
-settings panel, the PDA nav integration, and all related work by The_Baron
-[1467784] - are copyright (c) 2026 The_Baron [1467784], all rights reserved: free
-to install and use for your own personal, non-commercial purposes, but any other
-use (copying, modifying, redistributing, re-publishing, or reusing the code
-elsewhere) needs prior written permission and is granted for non-commercial
-purposes only. To ask, write to The_Baron [1467784] on Torn. See the LICENSE file
-for the full terms.
+Free, open source, MIT licensed - the same terms as the original BUSTR.
+Copyright (c) Adobi and Ironhydedragon (original BUSTR) and The_Baron [1467784]
+(this fork). You are free to use, copy, modify, and redistribute it under the MIT
+License. See the LICENSE file for the full text.
