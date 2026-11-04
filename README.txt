@@ -56,8 +56,10 @@ YOUR PRIVACY AND YOUR ACCOUNT COME FIRST
   so your phone and computer share one history. It asks for explicit consent the
   first time you enable it, and uploads your bust history along with the context
   behind your predictions - your bust perks, level, calibration, BUSTR settings
-  and script version - all so the success model can be improved. Never your API
-  key, name, or faction. It can be turned off and its cloud copy deleted at any
+  and script version - all so the success model can be improved. The upload is
+  tied to your verified Torn player ID so your history follows you across devices;
+  the uploaded data itself never includes your API key, name, or faction. It can
+  be turned off and its cloud copy deleted at any
   time from the settings panel. Leave it off and BUSTR is fully local, exactly as
   before. When it is on it is deliberately lightweight: a whole busting session is
   saved in a single upload and it only checks for changes from your other devices
@@ -83,8 +85,10 @@ The settings panel has an optional "Copy debug export" button. It is opt-in and
 one-way, with no import. It copies a JSON snapshot of your level, settings,
 detected perks, current penalty, calibration, and logged bust history to your
 clipboard, so you can share it with the maintainer if you want to help improve the
-model. It never includes your API key, Torn username, ID, or faction, because the
-script never reads or stores any of those.
+model. It never includes your API key, Torn username, or faction - the script
+does not read or store those. Your Torn player ID is read only if you turn on
+cloud sync, to identify your cloud backup; even then it stays on your device and
+is kept out of both the export and the uploaded data.
 
 
 REQUIREMENTS
