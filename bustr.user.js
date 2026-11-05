@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BUSTR: Jail Bust Assistant + PDA (Baron)
 // @namespace    http://torn.city.com.dot.com.com
-// @version      2.25.0
+// @version      2.26.0
 // @description  Shows your success odds on every jailed target, and how many busts you can make before failure gets likely
 // @updateURL    https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
 // @downloadURL  https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
@@ -63,7 +63,7 @@
   ////////////////////////////////////////////////////////////////////////////
 
   const DEBUG = false; // true re-enables console logs
-  const SCRIPT_VERSION = '2.25.0'; // keep in sync with @version above
+  const SCRIPT_VERSION = '2.26.0'; // keep in sync with @version above
 
   // Penalty model (documented in-game mechanic): each bust adds a penalty decaying
   // hyperbolically as P0/(1+c*t) - half gone at 10h, zero past 72h. PENALTY_PER_BUST
@@ -147,7 +147,7 @@
   const PRED_SHRINK_K = 0.40;    // fraction of raw spread that survives (was 0.65; refit v2.20.0)
   const PRED_SHRINK_CENTER = 45; // %, the pivot predictions are pulled toward
 
-  // --- Cal-aware success lift (v2.22.2; K raised v2.24.0) ---
+  // --- Cal-aware success lift (v2.22.2; K raised v2.24.0, again v2.26.0) ---
   // The shrink is a single global reshape and can't fix a skill-DEPENDENT bias:
   // segmenting pooled outcomes by cal showed low-cal players over-promised and high-cal
   // UNDER-sold by ~16 points (the harmful direction - a strong buster shown ~50% who
@@ -161,7 +161,17 @@
   // with the wider self-cal bounds below: end-to-end this cut the strong cohort's under-sell
   // +6.0 -> +3.2 and halved the cohort fan 16.3 -> 8.4, at held-out Brier 0.2033 -> 0.1958
   // (fit cal on half of each user's rows, score the other half - it generalises, not overfit).
-  const SUCCESS_LIFT_K = 24;        // points of lift per 1.0 of cal above the pivot (was 18; v2.24.0)
+  // v2.26.0 re-fit on 16547 reconstructable outcomes (97 users, 50 self-fit) raised K 24 -> 36,
+  // with the ceiling 1.8 -> 1.9 below: end-to-end this halved the cohort fan again 5.5 -> 2.6 and
+  // flattened every skill cohort to within +/-1.6 (lo -1.6, mid +0.6, base -0.7, hi +1.0), at
+  // held-out Brier 0.1837 -> 0.1812, overall bias held ~0. Significant AFTER user clustering:
+  // a user-level bootstrap put the 95% CI on the Brier gain at [+0.0010,+0.0044] (excludes 0) and
+  // a paired per-user sign test had 38 of 50 self-fitters improve (z=3.86) - not a row-count
+  // artefact. The asymmetric lift-only variant stays rejected (see "Symmetric form kept" above).
+  // The one residual this does NOT touch is the ~12pt over-sell in the 40-49% band (structural -
+  // it sits at the shrink CENTRE, so only a C change reaches it, which risks the 50-69 core).
+  // Full methodology + numbers: cloud/REFIT_v2.26.0.md.
+  const SUCCESS_LIFT_K = 36;        // points of lift per 1.0 of cal above the pivot (18 -> 24 v2.24.0 -> 36 v2.26.0)
   const SUCCESS_LIFT_PIVOT = 0.85;  // no-lift point; matches CAL_NO_PERKS
 
   // --- Self-calibration (learns YOUR real success curve from logged outcomes) ---
@@ -183,8 +193,12 @@
   // Widening to 0.45/1.8 clips NO self-fit user on current data and halved the low cohort's
   // over-sell (-10.3 -> -5.2). The old "0.3 = pathological collapse" risk was a MIN_SAMPLES=15
   // artefact; the 100-sample gate now guards it, so 0.45 is safe here. Re-widen as data grows.
+  // v2.26.0 widened the ceiling 1.8 -> 1.9 (clip check on 50 self-fitters: 1.8 -> 1.9 pins nobody
+  // new - exactly one strong outlier's fit tracks just under whatever ceiling is set, so it gains
+  // a little room, 1.79 -> 1.89; everyone else is interior). Floor held at 0.45. That outlier's
+  // unconstrained optimum is still above 2.0, so the ceiling is a candidate to re-widen as data grows.
   const SELF_CAL_FLOOR = 0.45;          // fitted-cal clamp floor (was 0.3, then 0.6; 0.45 v2.24.0)
-  const SELF_CAL_CEILING = 1.8;         // fitted-cal clamp ceiling (1.4 -> 1.7 v2.22.2 -> 1.8 v2.24.0)
+  const SELF_CAL_CEILING = 1.9;         // fitted-cal clamp ceiling (1.4 -> 1.7 v2.22.2 -> 1.8 v2.24.0 -> 1.9 v2.26.0)
   const SELF_CAL_STEP = 0.02;           // grid-search resolution
   const PENDING_ATTEMPT_TIMEOUT_MS = 20 * 1000; // discard a click if no result follows in time
 
