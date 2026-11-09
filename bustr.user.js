@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BUSTR: Jail Bust Assistant + PDA (Baron)
 // @namespace    http://torn.city.com.dot.com.com
-// @version      2.27.0
+// @version      2.28.0
 // @description  Shows your success odds on every jailed target, and how many busts you can make before failure gets likely
 // @updateURL    https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
 // @downloadURL  https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
@@ -63,7 +63,7 @@
   ////////////////////////////////////////////////////////////////////////////
 
   const DEBUG = false; // true re-enables console logs
-  const SCRIPT_VERSION = '2.27.0'; // keep in sync with @version above
+  const SCRIPT_VERSION = '2.28.0'; // keep in sync with @version above
 
   // Penalty model (documented in-game mechanic): each bust adds a penalty decaying
   // hyperbolically as P0/(1+c*t) - half gone at 10h, zero past 72h. PENALTY_PER_BUST
@@ -235,6 +235,7 @@
 
   // Storage keys
   const STATE_KEY = 'globalBustrState';
+  const UI_SECTIONS_KEY = 'bustrUiSections'; // local-only (never synced): which settings sections are collapsed
   const API_KEY_NAME = 'bustrApiKey';
   const LEGACY_API_KEY_NAME = 'bustrApiKey'; // same name, but in localStorage pre-v2
 
@@ -1933,6 +1934,11 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
 #bustr-settings-panel .bustr-hint {color: #888; font-size: 10px; margin: 2px 0 8px;}
 #bustr-settings-panel .bustr-section {color: #8ca05a; font-size: 11px; font-weight: bold;
   text-transform: uppercase; letter-spacing: 0.03em; margin: 2px 0 6px;}
+#bustr-settings-panel .bustr-collapsible {cursor: pointer; -webkit-user-select: none; user-select: none;}
+#bustr-settings-panel .bustr-caret {display: inline-block; margin-right: 4px; font-size: 9px;
+  transition: transform 0.12s ease;}
+#bustr-settings-panel .bustr-section.bustr-expanded .bustr-caret {transform: rotate(90deg);}
+#bustr-settings-panel .bustr-collapse-body[hidden] {display: none;}
 #bustr-settings-panel hr {border: 0; border-top: 1px solid #3c3c3c; margin: 10px 0;}
 #bustr-settings-panel .bustr-btn {
   display: block; width: 100%; margin: 6px 0 0; padding: 6px; cursor: pointer;
@@ -3140,9 +3146,21 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
   }
 
   // One-line cloud status for the panel: unavailable / off / synced / error.
+  // Debug export is the manual bug-report path. When cloud sync is actually running, the
+  // maintainer already receives the same context automatically, so the button is redundant
+  // clutter and we hide the whole section. With sync off it is the only way to send a
+  // report, so it stays visible.
+  function applyDebugExportVisibility() {
+    const sec = document.getElementById('bustr-debug-export-section');
+    if (!sec) return;
+    const syncActive = hasGMXhr && CloudSync.enabled() && CloudSync.signedIn();
+    sec.style.display = syncActive ? 'none' : '';
+  }
+
   function refreshCloudStatus(msg) {
     const el = document.getElementById('bustr-cloud-status');
     if (!el) return;
+    applyDebugExportVisibility();
     if (typeof msg === 'string') { el.textContent = msg; return; }
     if (!hasGMXhr) { el.textContent = 'Unavailable here - this app or manager does not provide cross-origin requests. Works on desktop and recent Torn PDA.'; return; }
     if (CloudSync.enabled() && CloudSync.signedIn()) {
@@ -3459,6 +3477,21 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     });
   }
 
+  // Settings-panel section collapse state. Stored locally only (never inside userSettings,
+  // so it is not uploaded with cloud sync). The three heaviest sections start collapsed; we
+  // remember only the user's explicit expand/collapse choices, so everything stays one tap
+  // away while the panel opens focused on the controls people actually use.
+  const DEFAULT_COLLAPSED_SECTIONS = ['budget', 'display', 'model'];
+  function getSectionCollapsed(id) {
+    const ui = Store.get(UI_SECTIONS_KEY) || {};
+    return Object.prototype.hasOwnProperty.call(ui, id) ? !!ui[id] : DEFAULT_COLLAPSED_SECTIONS.indexOf(id) !== -1;
+  }
+  function setSectionCollapsed(id, collapsed) {
+    const ui = Store.get(UI_SECTIONS_KEY) || {};
+    ui[id] = !!collapsed;
+    Store.set(UI_SECTIONS_KEY, ui);
+  }
+
   function ensureSettingsPanelDom() {
     if (document.getElementById('bustr-settings-panel')) return;
 
@@ -3473,7 +3506,8 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
       <div class="bustr-status" id="bustr-set-status"></div>
       <div class="bustr-apierror" id="bustr-set-apierror" style="display:none"></div>
 
-      <div class="bustr-section">Bust budget ${q('budget')}</div>
+      <div class="bustr-section bustr-collapsible" data-sec="budget"><span class="bustr-caret">▸</span>Bust budget ${q('budget')}</div>
+      <div class="bustr-collapse-body" data-sec-body="budget">
       <div class="bustr-row"><label>Green at (available busts) ${q('green')}</label><input type="number" id="bustr-set-green" min="0"></div>
       <div class="bustr-row"><label>Red at / below ${q('red')}</label><input type="number" id="bustr-set-red" min="0"></div>
       <div class="bustr-row"><label>Refresh rate (sec) ${q('refresh')}</label><input type="number" id="bustr-set-refresh" min="15"></div>
@@ -3484,18 +3518,22 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
         </select>
       </div>
       <div class="bustr-row"><label>Compact nav badge ${q('badge')}</label><input type="checkbox" id="bustr-set-badgesimple"></div>
+      </div>
       <hr>
 
-      <div class="bustr-section">Jail list display ${q('display')}</div>
+      <div class="bustr-section bustr-collapsible" data-sec="display"><span class="bustr-caret">▸</span>Jail list display ${q('display')}</div>
+      <div class="bustr-collapse-body" data-sec-body="display">
       <div class="bustr-row"><label>Show hardness number ${q('hardness')}</label><input type="checkbox" id="bustr-set-hardness"></div>
       <div class="bustr-row"><label>Easy bust (BUSTR fires it) ${q('easyactions')}</label><input type="checkbox" id="bustr-set-easybust"></div>
       <div class="bustr-row"><label>Easy bail (BUSTR fires it)</label><input type="checkbox" id="bustr-set-easybail"></div>
       <div class="bustr-row"><label>Show success % ${q('success')}</label><input type="checkbox" id="bustr-set-success"></div>
       <div class="bustr-row"><label>Success green at % ${q('sccolour')}</label><input type="number" id="bustr-set-scgreen" min="0" max="100"></div>
       <div class="bustr-row"><label>Success red below %</label><input type="number" id="bustr-set-scred" min="0" max="100"></div>
+      </div>
       <hr>
 
-      <div class="bustr-section">Success % model ${q('model')}</div>
+      <div class="bustr-section bustr-collapsible" data-sec="model"><span class="bustr-caret">▸</span>Success % model ${q('model')}</div>
+      <div class="bustr-collapse-body" data-sec-body="model">
       <div class="bustr-row"><label>Skill calibration (manual override) ${q('cal')}</label><input type="number" id="bustr-set-cal" min="0" max="2" step="0.05"></div>
       <div class="bustr-row"><label>Self-calibration (learn from my outcomes) ${q('selfcal')}</label><input type="checkbox" id="bustr-set-selfcal"></div>
       <div class="bustr-hint" id="bustr-set-selfcal-stats">No outcomes logged yet.</div>
@@ -3503,6 +3541,7 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
       <div class="bustr-row"><label>Use perk-based calibration ${q('perkcal')}</label><input type="checkbox" id="bustr-set-useperkcal"></div>
       <div class="bustr-hint" id="bustr-set-perk-impact"></div>
       <button type="button" class="bustr-btn" id="bustr-set-force-update">Force update level/perks now</button>
+      </div>
       <hr>
 
       <div class="bustr-section">Play style ${q('playstyle')}</div>
@@ -3540,10 +3579,12 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
       <button type="button" class="bustr-btn" id="bustr-set-cloud-delete">Delete my cloud data</button>
       <hr>
 
+      <div id="bustr-debug-export-section">
       <div class="bustr-section">Debug export ${q('exportHelp')}</div>
       <button type="button" class="bustr-btn" id="bustr-set-export">Copy debug export</button>
       <textarea id="bustr-set-export-area" readonly style="display:none;width:100%;height:80px;margin-top:6px;background:#1a1a1a;color:#ddd;border:1px solid #444;border-radius:4px;font-size:10px;padding:4px;box-sizing:border-box;"></textarea>
       <hr>
+      </div>
 
       <div class="bustr-section">Reset</div>
       <div class="bustr-btn-row"><button type="button" class="bustr-btn" id="bustr-set-reset">Reset settings only</button>${q('reset')}</div>
@@ -3574,6 +3615,27 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     const byId = (id) => document.getElementById(id);
 
     populateSettingsPanelInputs(); // initial fill; also re-run every time the panel opens (see openSettings)
+
+    // Collapsible sections: the three heavy ones (budget / display / model) start collapsed
+    // and remember the user's choice across sessions. The help "?" chip inside a heading is
+    // intercepted by the capture-phase listener above (it stopPropagation()s), so tapping a
+    // chip never toggles the section; the guard here is belt-and-braces.
+    panel.querySelectorAll('.bustr-collapsible').forEach((head) => {
+      const id = head.getAttribute('data-sec');
+      const body = panel.querySelector('[data-sec-body="' + id + '"]');
+      if (!body) return;
+      const apply = (collapsed) => {
+        body.hidden = collapsed;
+        head.classList.toggle('bustr-expanded', !collapsed);
+      };
+      apply(getSectionCollapsed(id));
+      head.addEventListener('click', (e) => {
+        if (e.target.closest && e.target.closest('.bustr-q')) return;
+        const collapsed = !body.hidden; // currently expanded -> collapse, and vice versa
+        apply(collapsed);
+        setSectionCollapsed(id, collapsed);
+      });
+    });
 
     byId('bustr-set-close').addEventListener('click', closeSettings);
 
