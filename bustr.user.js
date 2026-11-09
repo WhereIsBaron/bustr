@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BUSTR: Jail Bust Assistant + PDA (Baron)
 // @namespace    http://torn.city.com.dot.com.com
-// @version      2.26.0
+// @version      2.27.0
 // @description  Shows your success odds on every jailed target, and how many busts you can make before failure gets likely
 // @updateURL    https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
 // @downloadURL  https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
@@ -63,7 +63,7 @@
   ////////////////////////////////////////////////////////////////////////////
 
   const DEBUG = false; // true re-enables console logs
-  const SCRIPT_VERSION = '2.26.0'; // keep in sync with @version above
+  const SCRIPT_VERSION = '2.27.0'; // keep in sync with @version above
 
   // Penalty model (documented in-game mechanic): each bust adds a penalty decaying
   // hyperbolically as P0/(1+c*t) - half gone at 10h, zero past 72h. PENALTY_PER_BUST
@@ -346,9 +346,7 @@
           greenLimit: 3, // green at this number and over
         },
         statsRefreshRate: DEFAULT_REFRESH_SECONDS, // seconds (local recompute)
-        customPenaltyThreshold: 0, // 0 = use the prediction algorithm
         showHardnessScore: true,   // hardness number visible
-        sortByHardness: true,      // independent: easiest-first sort (can be on/off regardless of the above)
         quickBust: false,          // opt-in: relabel Torn's OWN bust link to no-confirm (step=breakout1); never clicks for you. See COMPLIANCE NOTE.
         quickBail: false,          // opt-in: same for the bail link (buy -> buy1)
         easyBust: false,           // opt-in (consent-gated): header button, 1 tap = 1 bust request for the best shown target. See COMPLIANCE NOTE.
@@ -646,10 +644,6 @@
   }
 
   function calcPenaltyThreshold(timestampsArray) {
-    const settings = getUserSettings();
-    if (settings.customPenaltyThreshold && typeof settings.customPenaltyThreshold === 'number') {
-      return settings.customPenaltyThreshold;
-    }
     if (!timestampsArray || timestampsArray.length === 0) return 0;
 
     const period = 24 * 60 * 60 * 3;
@@ -1238,13 +1232,11 @@
           // budget / colour band section:
           redLimit: us.reminderLimits ? us.reminderLimits.redLimit : null,
           greenLimit: us.reminderLimits ? us.reminderLimits.greenLimit : null,
-          customPenaltyThreshold: (typeof us.customPenaltyThreshold === 'number' ? us.customPenaltyThreshold : null),
           statsRefreshRate: (typeof us.statsRefreshRate === 'number' ? us.statsRefreshRate : null),
           activeScope: us.activeScope || null,
           navBadgeDetail: us.navBadgeDetail || null,
           // jail-list display section:
           showHardnessScore: !!us.showHardnessScore,
-          sortByHardness: !!us.sortByHardness,
           quickBust: !!us.quickBust,
           quickBail: !!us.quickBail,
           easyBust: !!us.easyBust,
@@ -1445,9 +1437,6 @@
 
   function sortByHardnessScore(playerEl, hardnessScore) {
     playerEl.style.order = hardnessScore;
-  }
-  function clearSortOrder(playerEl) {
-    playerEl.style.order = '';
   }
 
   ////////////////////////////////////////////////////////////////////////////
@@ -2501,7 +2490,6 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     // for a 'last' class, but a single-row page (last page of a list) is first AND last, so
     // it skipped the whole page and left #####/--% stuck. The per-row check below
     // (getLevelJailDurationInfo returning null) skips incomplete rows one at a time instead.
-    const sortOn = getUserSettings().sortByHardness !== false;
     const penaltyPct = calcPenaltyPct(getTimestampsArray());
 
     for (const playerEl of playersArr) {
@@ -2510,8 +2498,7 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
       const [level, durationInHours] = info;
       const hardnessScore = calcHardnessScore(level, durationInHours);
       renderHardnessScore(playerEl, hardnessScore);
-      if (sortOn) sortByHardnessScore(playerEl, hardnessScore);
-      else clearSortOrder(playerEl);
+      sortByHardnessScore(playerEl, hardnessScore);
       renderSuccessChance(playerEl, calcSuccessChance(hardnessScore, penaltyPct));
     }
     applyQuickActions(); // keep the opt-in quick-bust/bail relabelling in sync every render pass
@@ -3132,10 +3119,8 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
 
     byId('bustr-set-green').value = us.reminderLimits.greenLimit;
     byId('bustr-set-red').value = us.reminderLimits.redLimit;
-    byId('bustr-set-threshold').value = us.customPenaltyThreshold || 0;
     byId('bustr-set-refresh').value = us.statsRefreshRate || DEFAULT_REFRESH_SECONDS;
     byId('bustr-set-hardness').checked = us.showHardnessScore !== false;
-    byId('bustr-set-sort').checked = us.sortByHardness !== false;
     byId('bustr-set-easybust').checked = us.easyBust === true;
     byId('bustr-set-easybail').checked = us.easyBail === true;
     byId('bustr-set-success').checked = us.showSuccessChance !== false;
@@ -3402,13 +3387,11 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     budget: ['Bust budget', 'How many more busts BUSTR thinks you can make before failure gets likely. This is the number on the Jail nav badge. It is completely separate from the per-target success %: nothing in this section ever changes a prisoner\'s odds, only the budget count and the colours.'],
     green: ['Green at', 'The nav badge and page tint turn green when your available-bust count is this number or higher. Default is 3.'],
     red: ['Red at / below', 'They turn red at this number or below. Default is 0, so red means the budget is spent. Anything between the red and green numbers shows orange.'],
-    threshold: ['Custom threshold', 'Your penalty ceiling: how much bust penalty you can carry before BUSTR calls the budget spent. Leave it at 0 and BUSTR works this out from your own bust history, by finding the longest run of busts you have actually sustained. Set a number only if you want to override that estimate.'],
     refresh: ['Refresh rate', 'How often the on-screen numbers redraw, in seconds. This does NOT control how often BUSTR calls the Torn API. Those calls are throttled separately, to at most once every 35 seconds on the jail page and once every 30 minutes elsewhere, so lowering this costs you nothing in API usage. Minimum 15.'],
     scope: ['Active on', 'Anywhere: the nav badge and colours appear on every Torn page. Jail page only: hides them and pauses background checks everywhere except the jail page. Use it if the badge distracts you while doing other things.'],
     badge: ['Compact nav badge', 'On (default): the Jail nav badge shows how many more busts you can safely make (colour-coded by budget) plus your penalty %, which is coloured by severity - green when low, amber mid, red high, and a heavier red over 100%. Off: it also shows the raw penalty score / threshold prefix. Either way the full breakdown is always available by hovering the badge and in this panel\'s status line, so nothing is lost.'],
-    display: ['Jail list display', 'These change only what the jail list shows and how it is sorted. The hardness score and the odds underneath are always calculated the same way regardless.'],
+    display: ['Jail list display', 'These change only what the jail list shows. The list is always sorted easiest-first, and the hardness score and the odds underneath are always calculated the same way regardless.'],
     hardness: ['Hardness number', 'Shows each prisoner\'s hardness score, which is their level multiplied by their remaining jail time plus three hours. Higher means harder to bust.'],
-    sort: ['Sort easiest-first', 'Reorders the jail list so the easiest targets sit at the top. Torn\'s own order is by time remaining instead.'],
     quickactions: ['Quick actions', 'Optional. When on, BUSTR relabels Torn\'s own bust/bail link to its no-confirmation variant (the button gets a green highlight) so your single click skips the "are you sure?" step. BUSTR never clicks or busts for you - you still press every button yourself, one click per bust. This is the same mechanism the long-running TornTools extension uses. If you run TornTools, turn its own Quick Bust off to use this - the two act on the same link and conflict. Off by default; leave off if you prefer Torn\'s confirmation.'],
     easyactions: ['Easy actions', 'Optional and OFF by default. Adds a one-tap "Easy Bust" / "Easy Bail" button to the jail list header. Unlike Quick actions (which only relabel your own click), tapping this makes BUSTR send the request itself for the single best shown target - bust picks the highest success %, bail picks the cheapest. If a bust fails and that person is still in jail, the next tap retries the same person - until they are busted or no longer in jail - then moves on to the next best target. It is strictly one tap = one request, to the same jail page, with no looping or auto-repeat: the button does nothing until you tap it again, and you decide when to tap. Enabling asks for a one-time confirmation. Use at your own discretion.'],
     success: ['Show success %', 'Shows your estimated chance of busting each prisoner, from their hardness and your current penalty.'],
@@ -3493,7 +3476,6 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
       <div class="bustr-section">Bust budget ${q('budget')}</div>
       <div class="bustr-row"><label>Green at (available busts) ${q('green')}</label><input type="number" id="bustr-set-green" min="0"></div>
       <div class="bustr-row"><label>Red at / below ${q('red')}</label><input type="number" id="bustr-set-red" min="0"></div>
-      <div class="bustr-row"><label>Custom threshold (0 = auto) ${q('threshold')}</label><input type="number" id="bustr-set-threshold" min="0"></div>
       <div class="bustr-row"><label>Refresh rate (sec) ${q('refresh')}</label><input type="number" id="bustr-set-refresh" min="15"></div>
       <div class="bustr-row"><label>Active on ${q('scope')}</label>
         <select id="bustr-set-scope">
@@ -3506,7 +3488,6 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
 
       <div class="bustr-section">Jail list display ${q('display')}</div>
       <div class="bustr-row"><label>Show hardness number ${q('hardness')}</label><input type="checkbox" id="bustr-set-hardness"></div>
-      <div class="bustr-row"><label>Sort easiest-first ${q('sort')}</label><input type="checkbox" id="bustr-set-sort"></div>
       <div class="bustr-row"><label>Easy bust (BUSTR fires it) ${q('easyactions')}</label><input type="checkbox" id="bustr-set-easybust"></div>
       <div class="bustr-row"><label>Easy bail (BUSTR fires it)</label><input type="checkbox" id="bustr-set-easybail"></div>
       <div class="bustr-row"><label>Show success % ${q('success')}</label><input type="checkbox" id="bustr-set-success"></div>
@@ -3599,10 +3580,8 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     // Wire inputs (each persists then re-applies live)
     byId('bustr-set-green').addEventListener('change', (e) => { updateLimit('greenLimit', Math.max(0, numOr(e.target, 3))); applySettings(); });
     byId('bustr-set-red').addEventListener('change', (e) => { updateLimit('redLimit', Math.max(0, numOr(e.target, 0))); applySettings(); });
-    byId('bustr-set-threshold').addEventListener('change', (e) => { updateSetting('customPenaltyThreshold', Math.max(0, numOr(e.target, 0))); applySettings(); refreshSettingsStatus(); });
     byId('bustr-set-refresh').addEventListener('change', (e) => { updateSetting('statsRefreshRate', Math.max(15, numOr(e.target, DEFAULT_REFRESH_SECONDS))); startRefreshLoops(); });
     byId('bustr-set-hardness').addEventListener('change', (e) => { updateSetting('showHardnessScore', e.target.checked); applySettings(); });
-    byId('bustr-set-sort').addEventListener('change', (e) => { updateSetting('sortByHardness', e.target.checked); applySettings(); });
     byId('bustr-set-easybust').addEventListener('change', (e) => { handleEasyToggle('easyBust', e.target); });
     byId('bustr-set-easybail').addEventListener('change', (e) => { handleEasyToggle('easyBail', e.target); });
     byId('bustr-set-success').addEventListener('change', (e) => { updateSetting('showSuccessChance', e.target.checked); applySettings(); });
