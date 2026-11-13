@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BUSTR: Jail Bust Assistant + PDA (Baron)
 // @namespace    http://torn.city.com.dot.com.com
-// @version      2.28.0
+// @version      2.29.0
 // @description  Shows your success odds on every jailed target, and how many busts you can make before failure gets likely
 // @updateURL    https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
 // @downloadURL  https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
@@ -63,7 +63,7 @@
   ////////////////////////////////////////////////////////////////////////////
 
   const DEBUG = false; // true re-enables console logs
-  const SCRIPT_VERSION = '2.28.0'; // keep in sync with @version above
+  const SCRIPT_VERSION = '2.29.0'; // keep in sync with @version above
 
   // Penalty model (documented in-game mechanic): each bust adds a penalty decaying
   // hyperbolically as P0/(1+c*t) - half gone at 10h, zero past 72h. PENALTY_PER_BUST
@@ -766,6 +766,41 @@
   // Estimated odds of busting a target of the given hardness right now.
   function calcSuccessChance(hardness, penaltyPct) {
     return Math.round(calcSuccessChanceRaw(hardness, penaltyPct, getSkillCalibration()));
+  }
+
+  ////////////////////////////////////////////////////////////////////////////
+  ////  EV DECISION LAYER (which shown targets are worth busting NOW)
+  ////////////////////////////////////////////////////////////////////////////
+  // Ranks the targets already on screen by expected value and flags which ones are
+  // worth busting right now given your REAL bust budget (availableBusts). The jail
+  // page exposes only level + time, so worth is flat (every bust is one unit) and EV
+  // reduces to odds x time-realizability; the budget-aware cut is the real output -
+  // "bust these N, skip the rest, and why". Purely additive: no new data, no model
+  // change, no automation. It only annotates rows you already see; one tap is still
+  // one request, and YOU choose whether to click Torn's own bust link.
+  var EV_BASE_WORTH = 0.5;   // flat per-target worth (no bounty/type signal on the page)
+  var EV_ODDS_FLOOR = 0.25;  // below this, not worth spending a budgeted bust
+  var EV_MIN_SECONDS = 90;   // under this they're released before you can realistically act
+
+  // Fraction of the worth you can realistically capture given jail time left:
+  // ~0 under a minute, full by about 8 minutes.
+  function evTimeRealizability(sec) {
+    sec = sec || 0;
+    if (sec <= 60) return 0.05;
+    return Math.max(0.05, Math.min(1, (sec - 60) / (480 - 60)));
+  }
+
+  // Opportunity cost of spending ONE bust from a limited budget. Target-independent,
+  // but climbs as the budget nears empty so your last few busts go to your best targets.
+  function evMarginalCost(left) {
+    var unit = 0.15;
+    var scarcity = left <= 0 ? 3 : Math.max(0, Math.min(2, 2 / left));
+    return unit * (1 + scarcity);
+  }
+
+  // Gross expected worth drives the RANK; EV (gross minus the cost bar) drives the cut.
+  function evGrossEV(p, sec) {
+    return p * EV_BASE_WORTH * evTimeRealizability(sec);
   }
 
   ////////////////////////////////////////////////////////////////////////////
@@ -1770,6 +1805,19 @@ body.bustr-inactive.bustr--red {--color: inherit;}
 body.bustr-no-hardness .bustr-hardness-score {display: none;}
 body.bustr-no-success .bustr-success-chance {display: none;}
 
+/* Tabular figures so stacked hardness scores / percentages don't jitter column width. */
+.bustr-hardness-score, .bustr-success-chance, .bustr-rec {font-variant-numeric: tabular-nums;}
+
+/* EV decision marker: tells you WHICH shown targets to bust now given your budget. The
+   ">"/"skip" glyph+word carries the meaning without relying on colour (colour only
+   reinforces it), so it stays readable for colour-blind users and on mono PDA themes. */
+.bustr-rec {display: block; font-size: 10px; font-weight: 700; line-height: 1.15; letter-spacing: 0.2px;}
+.bustr-rec:empty {display: none;}
+.bustr-rec--go {color: ${greenApple};}
+.bustr-rec--skip {color: #5f5f5f; font-weight: 600; opacity: 0.85;}
+.dark-mode .bustr-rec--skip {color: #9aa4af;}
+body.bustr-no-rec .bustr-rec {display: none;}
+
 /* Compact nav badge: show only the "busts left" count, hide the penalty prefix and %
    line. The mobile tap-detail menu keeps the full readout (#bustr-context, no detail class). */
 body.bustr-badge-simple .bustr-badge-detail {display: none;}
@@ -2214,6 +2262,7 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
             <span class="title bold">HARDNESS</span>
             <span class="bustr-hardness-score">#####</span>
             <span class="bustr-success-chance">--%</span>
+            <span class="bustr-rec"></span>
           </span>`;
         playerInfoContainerEl.children[2].insertAdjacentHTML('afterend', hardnessScoreHTML);
       }
@@ -2498,17 +2547,72 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     // (getLevelJailDurationInfo returning null) skips incomplete rows one at a time instead.
     const penaltyPct = calcPenaltyPct(getTimestampsArray());
 
+    // Pass 1: paint hardness + success per row (unchanged), and collect what the EV cut needs.
+    const evRows = [];
     for (const playerEl of playersArr) {
       const info = getLevelJailDurationInfo(playerEl);
       if (!info) continue;
       const [level, durationInHours] = info;
       const hardnessScore = calcHardnessScore(level, durationInHours);
+      const chance = calcSuccessChance(hardnessScore, penaltyPct);
       renderHardnessScore(playerEl, hardnessScore);
       sortByHardnessScore(playerEl, hardnessScore);
-      renderSuccessChance(playerEl, calcSuccessChance(hardnessScore, penaltyPct));
+      renderSuccessChance(playerEl, chance);
+      const sec = durationInHours * 3600;
+      evRows.push({ playerEl: playerEl, p: chance / 100, sec: sec, gross: evGrossEV(chance / 100, sec) });
     }
+    // Pass 2: rank by EV and mark which rows are worth busting NOW given the real budget.
+    planAndRenderRecommendations(evRows);
     applyQuickActions(); // keep the opt-in quick-bust/bail relabelling in sync every render pass
     renderEasyActionButtons(); // re-ensure the Easy actions bar if Torn re-rendered the header away
+  }
+
+  // Ranks the collected rows by gross EV, then walks the ranking spending your real bust
+  // budget: each affordable, worthwhile target is marked "bust #N", the rest get a short
+  // reason. Pure annotation - it does NOT reorder the list (rows already sit in hardness
+  // order via sortByHardnessScore) and it clicks nothing. One tap stays one request.
+  const REC_SKIP_LABEL = {
+    'too soon': 'too soon',
+    'odds low': 'odds low',
+    'no budget': 'no budget',
+    'over budget': 'budget used',
+    'low value': 'low value',
+  };
+  function planAndRenderRecommendations(evRows) {
+    const left = getAvailableBusts() || 0;
+    const cost = evMarginalCost(left);
+    // Rank a COPY by EV; the DOM keeps its hardness order.
+    const ranked = evRows.slice().sort((a, b) => b.gross - a.gross);
+    let used = 0;
+    for (const r of ranked) {
+      const ev = r.gross - cost;
+      let reason = null;
+      if (r.sec < EV_MIN_SECONDS) reason = 'too soon';
+      else if (r.p < EV_ODDS_FLOOR) reason = 'odds low';
+      else if (left <= 0) reason = 'no budget';
+      else if (used >= left) reason = 'over budget';
+      else if (ev <= 0) reason = 'low value';
+      let rank = 0;
+      if (!reason) rank = ++used;
+      renderRecommendation(r.playerEl, reason, rank);
+    }
+  }
+
+  function renderRecommendation(playerEl, reason, rank) {
+    const el = playerEl.querySelector('.bustr-rec');
+    if (!el) return;
+    el.classList.remove('bustr-rec--go', 'bustr-rec--skip');
+    if (!reason) {
+      // Non-colour cue: the '>' glyph + the word "bust" mark a recommendation even without colour.
+      el.textContent = '> bust #' + rank;
+      el.classList.add('bustr-rec--go');
+      el.title = 'BUSTR recommends this bust (rank ' + rank + ' by expected value, within your bust budget)';
+    } else {
+      // Non-colour cue: "skip" + the reason text, not colour alone.
+      el.textContent = 'skip - ' + (REC_SKIP_LABEL[reason] || reason);
+      el.classList.add('bustr-rec--skip');
+      el.title = 'Not recommended right now - ' + (REC_SKIP_LABEL[reason] || reason);
+    }
   }
 
   // Quick Bust / Quick Bail. Points the PLAYER's own click at Torn's no-confirmation link
