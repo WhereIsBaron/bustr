@@ -4417,15 +4417,17 @@ body.bustr-compact #bustr-context .bustr-ctx-detail {display: none;}
 
       migrateFromLegacyStorage();
       loadGlobalBustrState();
+      // Restore the cached level so the success model is right before the API replies. Do it first:
+      // the self-cal fit is level-relative (calcSuccessChanceRaw reads getPlayerLevel()), so any fit
+      // below would otherwise be made on the fallback level and skew the odds for anyone under 100.
+      if (typeof getGlobalBustrState().playerLevel === 'number') {
+        playerLevel = getGlobalBustrState().playerLevel;
+      }
       sanitizeOutcomeLog(); // strip synthetic/test rows before they sync or reach the stats
       // Upgrading from a build without the adaptive fit: compute it now from the existing log so the
       // odds use your own results from the first page view, not only after your next bust.
       try { if (!getGlobalBustrState().selfCalFit) refitFromExistingOutcomes(); } catch (e) { /* advisory; refits on next bust / panel open */ }
       CloudSync.initFromLoad(); // pull+merge cloud history if sync is on (no-op otherwise)
-      // Restore the cached level so the success model is right before the API replies
-      if (typeof getGlobalBustrState().playerLevel === 'number') {
-        playerLevel = getGlobalBustrState().playerLevel;
-      }
 
       await initController();
       // Paint the cached numbers immediately, before the network fetch below. initController()

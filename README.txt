@@ -18,11 +18,16 @@ WHAT IT DOES
   jail page, so your real odds are right there at a glance.
 - Tracks your bust penalty, the hidden cooldown that builds up as you bust, and
   estimates how many busts you have left before your success rate drops off.
-- Can learn from your own results over time to fine-tune its predictions to you.
-  This self-calibration is fully passive and reads only the bust-result text Torn
-  already shows you.
+- Learns from your own results to fine-tune its predictions to you. This
+  adaptive calibration starts from your perks and follows your own results more
+  and more as they build up, from your very first logged bust. It is fully
+  passive and reads only the bust-result text Torn already shows you.
+- A bust history in Settings: the busts you attempted and the odds BUSTR showed
+  you, for today, the last 7 days or all time. Captive names stay on your device
+  and are never uploaded.
 - Optional Quick Bust / Quick Bail (off by default): relabels Torn's own
-  bust/bail link so your single click skips the "are you sure?" step.
+  bust/bail link so your single click skips the "are you sure?" step. Quick Bust
+  sits on the jail bar; Quick Bail is switched on in Settings.
 - Optional Easy Bust / Easy Bail (off by default, behind a consent prompt): a
   one-tap button on the jail header that sends one request for the single best
   shown target - bust picks the highest success %, bail the cheapest. Strictly
@@ -33,6 +38,9 @@ WHAT IT DOES
   look like a native row. An "Active on" setting lets you keep BUSTR everywhere
   or confine it to the jail page only (where it then hides itself completely off
   the jail page).
+- On PDA, press and hold the Jail button for a small card with your busts left,
+  your penalty % and the BUSTR settings button, so the nav bar stays clear. On by
+  default; switch off "Hold Jail for details" to keep the nav badge instead.
 
 
 YOUR PRIVACY AND YOUR ACCOUNT COME FIRST
@@ -58,25 +66,27 @@ YOUR PRIVACY AND YOUR ACCOUNT COME FIRST
   behind your predictions - your bust perks, level, calibration, BUSTR settings
   and script version - all so the success model can be improved. The upload is
   tied to your verified Torn player ID so your history follows you across devices;
-  the uploaded data itself never includes your API key, name, or faction. It can
-  be turned off and its cloud copy deleted at any
-  time from the settings panel. Leave it off and BUSTR is fully local, exactly as
-  before. When it is on it is deliberately lightweight: a whole busting session is
-  saved in a single upload and it only checks for changes from your other devices
-  about once an hour, so it adds no noticeable overhead.
+  the uploaded data itself never includes your API key, your name or faction, or
+  the names of the players you bust. It can be turned off and its cloud copy
+  deleted at any time from the settings panel. Leave it off and BUSTR is fully
+  local, exactly as before. When it is on it is deliberately lightweight: a whole
+  busting session is saved in a single upload and it only checks for changes from
+  your other devices about once an hour, so it adds no noticeable overhead.
 
 
 PERFORMANCE
 -----------
 The refresh rate in Settings (default 30 seconds, down to a 15 second floor) only
-changes how smoothly the on-screen countdown updates. It does not change how often
-BUSTR calls the Torn API. Those calls happen only on the jail page, throttled to
-at most once every 35 seconds there. Off the jail page BUSTR makes no API calls at
-all: your bust log can only change when you bust (which happens on the jail page),
-so everywhere else the budget badge is shown from cached data plus simple
-time-decay, with zero requests. BUSTR also pauses completely whenever its tab is
-in the background. The result is negligible API, CPU, and battery use, even on
-lower-end devices.
+changes how often the on-screen numbers redraw (your penalty itself counts down
+every second, worked out on your device). It does not change how often BUSTR
+calls the Torn API. Those calls happen only on the jail page: your bust log at
+most once every 35 seconds, your level and perks at most once a day. Off the jail
+page BUSTR makes no background API calls at all: your bust log can only change
+when you bust (which happens on the jail page), so everywhere else the budget
+badge is shown from cached data plus simple time-decay, with zero requests. The
+one extra is a single check of your key's type when you open Settings. BUSTR
+also pauses completely whenever its tab is in the background. The result is
+negligible API, CPU, and battery use, even on lower-end devices.
 
 
 HELPING IMPROVE BUSTR
@@ -99,7 +109,10 @@ over a Full Access key: the settings panel has a "Create a key for BUSTR" button
 that opens Torn's API page with exactly those three boxes pre-ticked and nothing
 else, so the key it makes cannot touch your money, your mail, or your faction.
 Generate it there, paste it back in. It is stored on your device only and sent
-nowhere except Torn's own API.
+nowhere except Torn's own API. When you open Settings, BUSTR also asks Torn once
+what kind of key you saved (the key's own info, which any key can read, so no
+extra box is needed); if it can do more than BUSTR needs, BUSTR tells you and
+offers the Create button.
 
 
 HOW THIS DIFFERS FROM THE ORIGINAL BUSTR
@@ -113,10 +126,11 @@ shows, and the displayed odds are calibrated so they mean what they say. For mos
 players the odds top out at 67% to 72%, depending on perks, because in the real
 outcome data even the best-looking targets fail about a third of the time - an
 honest 67% beats a flattering 100%. Only proven strong busters read higher, once
-their own logged results show it. Add self-calibration that keeps learning from
-your own results, perk-aware calibration, a proper in-page settings panel, and a
-dedicated nav button with your live numbers on both desktop and PDA. In short,
-this one also tells you your odds, not just your hardness and budget numbers.
+their own logged results show it. Add adaptive calibration that keeps learning
+from your own results, perk-aware calibration, a proper in-page settings panel,
+and a dedicated nav button with your live numbers on both desktop and PDA. In
+short, this one also tells you your odds, not just your hardness and budget
+numbers.
 
 
 CREDITS
@@ -128,8 +142,8 @@ the lighter version: search Greasy Fork for "BUSTR: Busting Reminder + PDA".
 Everything here is built on their foundation. The hardness score, the penalty
 budget model and the jail list integration are theirs. This build adds the
 per-target success prediction and its calibration against real outcome data,
-self-calibration, reliability and storage hardening, the settings panel, and the
-PDA nav integration, by The_Baron [1467784].
+adaptive calibration, reliability and storage hardening, the settings panel, and
+the PDA nav integration, by The_Baron [1467784].
 
 Credit also to RussianRob and Nosy, whose corrected penalty decay curve landed in
 the original's v1.1.0 and turns out to match the one derived here independently.
