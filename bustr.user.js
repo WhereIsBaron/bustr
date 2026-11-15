@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BUSTR: Jail Bust Assistant + PDA (Baron)
 // @namespace    http://torn.city.com.dot.com.com
-// @version      2.29.2
+// @version      2.29.3
 // @description  Shows your success odds on every jailed target, and how many busts you can make before failure gets likely
 // @updateURL    https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
 // @downloadURL  https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
@@ -63,7 +63,7 @@
   ////////////////////////////////////////////////////////////////////////////
 
   const DEBUG = false; // true re-enables console logs
-  const SCRIPT_VERSION = '2.29.2'; // keep in sync with @version above
+  const SCRIPT_VERSION = '2.29.3'; // keep in sync with @version above
 
   // Penalty model (documented in-game mechanic): each bust adds a penalty decaying
   // hyperbolically as P0/(1+c*t) - half gone at 10h, zero past 72h. PENALTY_PER_BUST
@@ -3120,12 +3120,41 @@ body.bustr-compact #bustr-context .bustr-ctx-detail {display: none;}
     return best;
   }
 
+  // Out-of-nerve guard for Easy Bust. A bust costs 5 nerve (Torn wiki), minus up to 3 from
+  // faction bust-nerve perks. Your current nerve is read off Torn's own sidebar bar
+  // (p.barName "Nerve:" + sibling p.barValue "136/145", live-verified desktop 2026-11-15).
+  // If the bar can't be read (e.g. a PDA layout without it) the guard stays out of the way
+  // and Torn's own "not enough nerve" reply is caught below instead.
+  const NO_NERVE_MSG = "You don't have enough nerve, try again later."; // Torn's own wording
+  const BUST_NERVE_BASE = 5;
+  const BUST_NERVE_MAX_CUT = 3;
+  function readSidebarNerve() {
+    for (const n of document.querySelectorAll('p[class*="barName"]')) {
+      if (!/^\s*nerve/i.test(n.textContent || '')) continue;
+      const v = n.parentElement && n.parentElement.querySelector('p[class*="barValue"]');
+      const m = v && (v.textContent || '').match(/(\d[\d,]*)\s*\/\s*\d/);
+      if (m) return parseInt(m[1].replace(/,/g, ''), 10);
+    }
+    return null;
+  }
+  function bustNerveCost() {
+    let cut = 0;
+    for (const p of getGlobalBustrState().bustPerks || []) {
+      if (classifyPerk(p) !== 'nerve' || /%/.test(p)) continue; // flat nerve cuts only
+      const m = p.match(/(\d+)/);
+      if (m) cut += parseInt(m[1], 10);
+    }
+    return BUST_NERVE_BASE - Math.min(BUST_NERVE_MAX_CUT, cut);
+  }
+
   // Classify Torn's JSON reply into success / jailed / clean-fail / gone. "gone" = already
   // left jail (not a real outcome, so not logged for calibration), checked first. Defensive:
   // on an unfamiliar shape, report not-success and don't guess jailed.
   function classifyEasyResponse(kind, data) {
     const text = ((data && (data.msg || data.text)) || '').toString();
     const green = !!(data && data.color === 'green');
+    // Refused for lack of nerve: no attempt happened, so it is not an outcome either.
+    if (/(not|n't) (have )?enough nerve/i.test(text)) return { success: false, jailed: false, noNerve: true, text };
     if (/no longer in jail|not in jail|already (been )?(busted|bailed|released|free)|isn't in jail/i.test(text)) {
       return { success: false, jailed: false, gone: true, text };
     }
@@ -3155,6 +3184,7 @@ body.bustr-compact #bustr-context .bustr-ctx-detail {display: none;}
   // HTML). Includes the target's name when known.
   function easyStatusMessage(kind, outcome, data, name, willRetry) {
     if (!data) return 'No response from Torn';
+    if (outcome.noNerve) return NO_NERVE_MSG;
     if (outcome.gone) return 'This person is no longer in jail.';
     const verb = kind === 'bust' ? 'busted' : 'bailed';
     if (outcome.success) return name ? name + ' was ' + verb + '.' : (kind === 'bust' ? 'Busted!' : 'Bailed!');
@@ -3169,6 +3199,10 @@ body.bustr-compact #bustr-context .bustr-ctx-detail {display: none;}
   // easyRetryId) - the script never re-fires without a fresh press.
   async function fireEasyAction(kind, btn, statusEl) {
     if (easyActionInFlight) return;
+    if (kind === 'bust') {
+      const nerve = readSidebarNerve();
+      if (nerve !== null && nerve < bustNerveCost()) { if (statusEl) statusEl.textContent = NO_NERVE_MSG; return; }
+    }
     const target = pickEasyTarget(kind);
     if (!target) { if (statusEl) statusEl.textContent = 'No eligible targets'; return; }
 
@@ -3206,7 +3240,10 @@ body.bustr-compact #bustr-context .bustr-ctx-detail {display: none;}
       // advance only once busted or gone. Bail (and non-bust paths) stay one-and-done.
       let finishedWithTarget = true;
 
-      if (kind === 'bust') {
+      if (kind === 'bust' && outcome.noNerve) {
+        takePendingAttempt(); // Torn refused (no nerve): nothing happened, so log nothing
+        finishedWithTarget = false; // keep the row eligible for when your nerve is back
+      } else if (kind === 'bust') {
         if (outcome.gone) {
           takePendingAttempt(); // target already left jail: discard, don't log a phantom failure
           easyRetryId = null;
