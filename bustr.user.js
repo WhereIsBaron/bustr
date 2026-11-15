@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BUSTR: Jail Bust Assistant + PDA (Baron)
 // @namespace    http://torn.city.com.dot.com.com
-// @version      2.29.1
+// @version      2.29.2
 // @description  Shows your success odds on every jailed target, and how many busts you can make before failure gets likely
 // @updateURL    https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
 // @downloadURL  https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
@@ -63,7 +63,7 @@
   ////////////////////////////////////////////////////////////////////////////
 
   const DEBUG = false; // true re-enables console logs
-  const SCRIPT_VERSION = '2.29.1'; // keep in sync with @version above
+  const SCRIPT_VERSION = '2.29.2'; // keep in sync with @version above
 
   // Penalty model (documented in-game mechanic): each bust adds a penalty decaying
   // hyperbolically as P0/(1+c*t) - half gone at 10h, zero past 72h. PENALTY_PER_BUST
@@ -479,8 +479,55 @@
   ////  GETTERS / SETTERS  (each setter writes once)
   ////////////////////////////////////////////////////////////////////////////
 
+  // ---- Outcome log across tabs ----
+  // Every Torn tab holds its own in-memory copy of the state, loaded once. A save writes the
+  // WHOLE copy, so a tab opened before your latest busts used to write its older log back over
+  // them (and push that older log to the cloud), silently erasing bust history. Now every save
+  // first unions the stored log into this tab's copy by timestamp, so no tab can drop another
+  // tab's rows. A deliberate clear/erase stamps LOG_CLEARED_KEY (kept outside the state so it
+  // survives the erase); rows at or before that stamp are dropped by every merge, so a stale
+  // tab or the cloud can't bring cleared rows back.
+  const LOG_CLEARED_KEY = 'bustr_outcome_log_cleared_at';
+  function getLogClearedAt() {
+    const v = Number(Store.get(LOG_CLEARED_KEY));
+    return Number.isFinite(v) ? v : 0;
+  }
+  function markOutcomeLogCleared() {
+    Store.set(LOG_CLEARED_KEY, Date.now());
+  }
+  // Union by timestamp, sorted, capped. b first, then a: on a same-timestamp tie the `a` row
+  // wins (callers pass the local copy as `a`, so its captive name beats a name-free cloud copy).
+  function mergeOutcomeLogs(a, b, clearedAt) {
+    const seen = new Map();
+    for (const o of [...(b || []), ...(a || [])]) {
+      if (isRealOutcome(o) && o.ts > (clearedAt || 0)) seen.set(o.ts, o);
+    }
+    const out = [...seen.values()].sort((x, y) => x.ts - y.ts);
+    while (out.length > OUTCOME_LOG_MAX) out.shift();
+    return out;
+  }
+  // Same rows in the same order (by timestamp) - a length check alone misses rows swapped at the cap.
+  function sameLogRows(x, y) {
+    return x.length === y.length && x.every((o, i) => o && y[i] && o.ts === y[i].ts);
+  }
+  // Fold the stored log into this tab's in-memory copy (memory only; the caller saves if needed).
+  function mergeStoredOutcomeLog() {
+    try {
+      const stored = Store.get(STATE_KEY);
+      const storedLog = (stored && Array.isArray(stored.outcomeLog)) ? stored.outcomeLog : [];
+      const mine = Array.isArray(GLOBAL_BUSTR_STATE.outcomeLog) ? GLOBAL_BUSTR_STATE.outcomeLog : [];
+      const merged = mergeOutcomeLogs(mine, storedLog, getLogClearedAt());
+      if (!sameLogRows(merged, mine)) {
+        GLOBAL_BUSTR_STATE = { ...GLOBAL_BUSTR_STATE, outcomeLog: merged, selfCalFit: computeSelfCalFit(merged) };
+      }
+    } catch (err) {
+      console.error('[BUSTR] outcome log merge failed', err);
+    }
+  }
+
   function setGlobalBustrState(newState) {
     GLOBAL_BUSTR_STATE = { ...GLOBAL_BUSTR_STATE, ...newState };
+    mergeStoredOutcomeLog(); // never write back an older log over rows another tab saved
     Store.set(STATE_KEY, GLOBAL_BUSTR_STATE);
   }
   function getGlobalBustrState() {
@@ -526,6 +573,7 @@
     return true;
   }
   function deleteGlobalBustrState() {
+    markOutcomeLogCleared(); // so a still-open older tab can't write the erased history back
     GLOBAL_BUSTR_STATE = defaultState();
     Store.remove(STATE_KEY);
   }
@@ -1324,15 +1372,10 @@
       const r = await fsRequest('DELETE', docUrl(uid));
       if (r.status !== 200 && r.status !== 404) throw new Error('delete failed (' + r.status + ')');
     }
-    // Union by timestamp, sorted, capped - so two devices converge to the same log.
+    // Union by timestamp, sorted, capped - so two devices converge to the same log. Local (a)
+    // wins a same-timestamp tie so its captive name survives; cleared rows stay cleared.
     function mergeLogs(a, b) {
-      const seen = new Map();
-      // b (cloud) first, then a (local) - so a local row (which may carry a captive name)
-      // wins a same-timestamp tie over the name-free cloud copy, keeping names in the view.
-      for (const o of [...(b || []), ...(a || [])]) if (isRealOutcome(o)) seen.set(o.ts, o);
-      const out = [...seen.values()].sort((x, y) => x.ts - y.ts);
-      while (out.length > OUTCOME_LOG_MAX) out.shift();
-      return out;
+      return mergeOutcomeLogs(a, b, getLogClearedAt());
     }
     // Captive names are a local-only convenience for the history view. Strip them before any
     // upload so the cloud log stays name-free (see profileSnapshot: never key/name/ID/faction).
@@ -1340,21 +1383,28 @@
     const enabled = () => !!getUserSettings().cloudSyncEnabled;
     const signedIn = () => { const a = loadAuth(); return !!(a && a.refreshToken); };
 
-    async function pullMerge() {
-      const a = loadAuth(); if (!a) return;
-      const cloud = await fsGet(a.uid);
+    // Read the cloud log, union it with ours (and with the stored log, via setGlobalBustrState),
+    // and return the result plus what the cloud held. Shared by pull and push so neither can
+    // replace one side's rows with the other's older copy.
+    async function mergeWithCloud(a) {
+      const cloud = (await fsGet(a.uid)) || [];
+      mergeStoredOutcomeLog(); // pick up rows another tab saved since this tab loaded
       const localLog = getGlobalBustrState().outcomeLog || [];
-      const merged = mergeLogs(localLog, cloud || []);
+      const merged = mergeLogs(localLog, cloud);
       // Compare by row timestamps, not just length: once both sides sit at the
       // OUTCOME_LOG_MAX cap, newer rows from the other device push older ones out and the
       // lengths stay equal, so a length check alone would silently drop the new rows.
-      const sameRows = (x, y) => x.length === y.length && x.every((o, i) => o && y[i] && o.ts === y[i].ts);
-      if (!sameRows(merged, localLog)) {
+      if (!sameLogRows(merged, localLog)) {
         setGlobalBustrState({ outcomeLog: merged, selfCalFit: computeSelfCalFit(merged) });
       }
+      return { cloud, merged: getGlobalBustrState().outcomeLog || [] };
+    }
+    async function pullMerge() {
+      const a = loadAuth(); if (!a) return;
+      const { cloud, merged } = await mergeWithCloud(a);
       // Only write back when the cloud is missing entries we have; when it already holds
       // everything (common on load) this is a pure read (the old code wrote every load).
-      if (!sameRows(merged, cloud || [])) await fsPatch(a.uid, { log: stripNm(merged), ...profileSnapshot() });
+      if (!sameLogRows(merged, cloud)) await fsPatch(a.uid, { log: stripNm(merged), ...profileSnapshot() });
     }
     // Per-user context backed up alongside the log (opt-in) so the shared model can be tuned
     // against real cross-user data: perks, level, script version, effective cal, and the
@@ -1395,7 +1445,14 @@
         },
       };
     }
-    async function push() { const a = loadAuth(); if (a) await fsPatch(a.uid, { log: stripNm(getGlobalBustrState().outcomeLog || []), ...profileSnapshot() }); }
+    // Merge first, then write: a plain overwrite let a tab holding an older log replace the
+    // cloud copy and erase newer busts. If the cloud read fails, nothing is written (the next
+    // push or pull retries) rather than risk overwriting rows we couldn't see.
+    async function push() {
+      const a = loadAuth(); if (!a) return;
+      const { merged } = await mergeWithCloud(a);
+      await fsPatch(a.uid, { log: stripNm(merged), ...profileSnapshot() });
+    }
     function pushSoon() {
       if (!enabled() || !signedIn()) return;
       if (pushTimer) clearTimeout(pushTimer);
@@ -3598,6 +3655,7 @@ body.bustr-compact #bustr-context .bustr-ctx-detail {display: none;}
       const listEl = document.getElementById('bustr-hist-list');
       const sumEl = document.getElementById('bustr-hist-summary');
       if (!listEl || !sumEl) return;
+      mergeStoredOutcomeLog(); // show busts logged in your other Torn tabs too (memory only)
       const rangeSel = document.getElementById('bustr-hist-range');
       const rangeKey = rangeSel ? rangeSel.value : 'today';
       const start = histRangeStart(rangeKey);
@@ -4311,6 +4369,7 @@ body.bustr-compact #bustr-context .bustr-ctx-detail {display: none;}
     wireTwoStepButton(byId('bustr-set-selfcal-clear'),
       'Clear outcome log', 'Tap again to clear the log',
       () => {
+        markOutcomeLogCleared(); // before the save, so the merge drops the cleared rows
         setGlobalBustrState({ outcomeLog: [], selfCalFit: null });
         refreshSettingsStatus();
       });
