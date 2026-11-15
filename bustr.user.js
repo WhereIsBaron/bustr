@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BUSTR: Jail Bust Assistant + PDA (Baron)
 // @namespace    http://torn.city.com.dot.com.com
-// @version      2.28.0
+// @version      2.29.0
 // @description  Shows your success odds on every jailed target, and how many busts you can make before failure gets likely
 // @updateURL    https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
 // @downloadURL  https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
@@ -63,7 +63,7 @@
   ////////////////////////////////////////////////////////////////////////////
 
   const DEBUG = false; // true re-enables console logs
-  const SCRIPT_VERSION = '2.28.0'; // keep in sync with @version above
+  const SCRIPT_VERSION = '2.29.0'; // keep in sync with @version above
 
   // Penalty model (documented in-game mechanic): each bust adds a penalty decaying
   // hyperbolically as P0/(1+c*t) - half gone at 10h, zero past 72h. PENALTY_PER_BUST
@@ -185,14 +185,13 @@
   // self-cal HURTING at small samples (fitting scored worse out-of-sample than the
   // perk-derived value: it fit noise). And since cal only scales hardness, a low floor
   // let it "explain" penalty-caused failures by making hardness brutal. So: floor/ceiling
-  // near the plausible perk range, and a sample count high enough to react to a real curve.
-  const SELF_CAL_MIN_SAMPLES = 100;     // don't trust a smaller fit (was 15: overfit)
+  // near the plausible perk range, and let the fit react to real signal, not noise.
   // v2.24.0 widened this clamp on 7879 reconstructable outcomes (63 users, 30 self-fit): at
   // floor 0.6 the 11 weakest self-fitters were pinned UP (real ~43% shown ~56% - the single
   // largest miscalibration in the data), and at ceiling 1.7 the strongest were pinned DOWN.
   // Widening to 0.45/1.8 clips NO self-fit user on current data and halved the low cohort's
   // over-sell (-10.3 -> -5.2). The old "0.3 = pathological collapse" risk was a MIN_SAMPLES=15
-  // artefact; the 100-sample gate now guards it, so 0.45 is safe here. Re-widen as data grows.
+  // artefact; the shrinkage blend (prior-dominated when samples are few) guards it, so 0.45 is safe here. Re-widen as data grows.
   // v2.26.0 widened the ceiling 1.8 -> 1.9 (clip check on 50 self-fitters: 1.8 -> 1.9 pins nobody
   // new - exactly one strong outlier's fit tracks just under whatever ceiling is set, so it gains
   // a little room, 1.79 -> 1.89; everyone else is interior). Floor held at 0.45. That outlier's
@@ -200,6 +199,22 @@
   const SELF_CAL_FLOOR = 0.45;          // fitted-cal clamp floor (was 0.3, then 0.6; 0.45 v2.24.0)
   const SELF_CAL_CEILING = 1.9;         // fitted-cal clamp ceiling (1.4 -> 1.7 v2.22.2 -> 1.8 v2.24.0 -> 1.9 v2.26.0)
   const SELF_CAL_STEP = 0.02;           // grid-search resolution
+
+  // --- Phase A: adaptive self-calibration ("perception" layer, v2.28.0-lab3) ---
+  // These refine HOW the single skill-cal scalar is derived from your own outcomes. They do
+  // NOT touch the odds model (calcSuccessChanceRaw) or any of its constants - the v2.8.0 lesson
+  // holds: no per-player free parameter enters the formula. These are FIXED regularizers only,
+  // feeding a shrinkage blend + a recency-weighted fit on top of the untouched model.
+  const SELF_CAL_PRIOR_PSEUDO_N = 100;  // shrinkage strength: the fitted cal earns ~half weight
+  // against the perk-derived prior at this many *effective* (recency-weighted) samples. Replaces
+  // the old hard 100-sample on/off cliff with a smooth prior->fit blend - at effN 0 the
+  // effective cal IS the prior (exactly the pre-100 behaviour), and it converges to the fit as
+  // real data accrues. Set to the old gate (100) so "half trust" lands near where the cliff was.
+  const SELF_CAL_HALF_LIFE_DAYS = 60;   // recency half-life: an outcome this old counts half as
+  // much in the fit, so the number TRACKS a player levelling / gaining perks (getting stronger)
+  // instead of being anchored by stale history. effN = sum of these weights (see computeSelfCalFit).
+  const SELF_CAL_CI_Z = 1.28;           // ~80% normal z for the ADVISORY cal interval (drives the
+  // panel readout now and the Phase C probe gate later). Advisory only - never enters the odds.
   const PENDING_ATTEMPT_TIMEOUT_MS = 20 * 1000; // discard a click if no result follows in time
 
   // --- Scoped API key creation ---
@@ -230,6 +245,7 @@
 
   // Timing
   const DEFAULT_REFRESH_SECONDS = 30;        // tick cadence (local recompute runs every tick)
+  const DECAY_REPAINT_MS = 1000;             // featherweight fetch-free repaint of the time-decaying penalty (no API call; see decayRepaintTick)
   const JAIL_MIN_FETCH_GAP_MS = 35 * 1000;   // min gap between jail-page API fetches (dodges Torn's ~30s cache)
   const FETCH_TIMEOUT_MS = 10000;
 
@@ -357,10 +373,11 @@
         skillCalibrationOverride: SKILL_CALIBRATION_OVERRIDE, // null = auto from perks
         successGreenAt: SC_GREEN_AT,   // % at/above which a target is green
         successRedBelow: SC_RED_BELOW, // % below which a target is red
-        selfCalibrationEnabled: true, // use learned-from-outcomes cal once enough samples exist (default on: passive-only, see COMPLIANCE NOTE)
+        selfCalibrationEnabled: true, // ON = blend the cal learned from your own outcomes with the perk baseline (shrinkage + recency, see getSkillCalibration/computeSelfCalFit); OFF = perk baseline only. Default on: passive-only, see COMPLIANCE NOTE.
         playStyle: 'safety',           // 'safety' | 'maxcount' (display-only thresholds, see PLAYSTYLE_* constants)
         activeScope: 'always',         // 'always' | 'jailOnly' - suppresses nav badge/colours + background fetch off the jail page
         navBadgeDetail: 'simple',      // 'simple' = badge shows only busts-left (default); 'full' = score/threshold : busts + penalty %. Full breakdown always in hover tooltip.
+        pdaHoldDetails: true,          // PDA only: ON = force the compact badge + reveal the full readout on a long-press/right-click of the Jail button (see installPdaHoldPopover); OFF = full readout inline like desktop. No effect off PDA.
         usePerkCalibration: true,      // ON by default (v2.17.0): scales the success/skill term by detected perks. Self-cal overrides once it has samples; penalty term stays on baseline (see getPenaltySkillCalibration).
         perkCalDefaultApplied: true,   // marks the v2.17.0 perk-cal-default migration ran (see loadGlobalBustrState); new installs start applied so a manual opt-out isn't re-flipped.
         cloudSyncEnabled: false,       // off by default; opt-in cloud backup of outcomeLog, behind a consent prompt (see CloudSync)
@@ -376,7 +393,7 @@
       lastProfileFetchMs: 0,              // when level/perks were last pulled from the API
       lastApiError: null,                 // {what, message, code, at} of the last failed API call, or null if the last one succeeded
       outcomeLog: [],                     // logged bust attempts: {h, pred, pen, success, jailed, lvl, cal, ts, m}, capped at OUTCOME_LOG_MAX
-      selfCalibrationValue: null,         // last fitted calibration from outcomeLog, or null if not enough samples
+      selfCalFit: null,                   // the self-calibration fit {cal, calFlat, lo, hi, effN, n, ts} from computeSelfCalFit, or null. The single per-user estimate; drives the shrinkage blend. Never pushed to cloud.
     };
   }
 
@@ -395,20 +412,25 @@
 
   // Effective skill calibration, in priority order:
   //   1. manual override (settings panel) - always wins if set
-  //   2. self-calibration fitted from your own logged outcomes, once enabled
-  //      and OUTCOME_LOG_MAX-capped log has SELF_CAL_MIN_SAMPLES+ entries
-  //   3. perk-derived estimate (see profileController)
+  //   2. self-calibration: a shrinkage blend of your perk-derived prior and the recency-weighted
+  //      fit from your own logged outcomes, weighted by effective sample size (see computeSelfCalFit)
+  //   3. perk-derived estimate alone (self-cal off, or no usable outcomes yet)
   let skillCalibration = CAL_CEILING;
   function getSkillCalibration() {
     const override = getUserSettings().skillCalibrationOverride;
     if (typeof override === 'number' && override > 0) return override;
 
-    const settings = getUserSettings();
-    if (settings.selfCalibrationEnabled) {
-      const state = getGlobalBustrState();
-      const log = state.outcomeLog || [];
-      if (log.length >= SELF_CAL_MIN_SAMPLES && typeof state.selfCalibrationValue === 'number') {
-        return state.selfCalibrationValue;
+    if (getUserSettings().selfCalibrationEnabled) {
+      // Bayesian shrinkage blend of the perk-derived prior (skillCalibration) and the recency-
+      // weighted fit (state.selfCalFit.cal), weighted by effective sample size. No hard sample
+      // cliff, and NO new odds-model parameter - the pseudo-count is a fixed regularizer. A convex
+      // combination of two already-sane values, so it is bounded by them: at effN 0 it IS the prior
+      // (prior left unclamped), it converges to the fit as data grows, and it can never lurch on a
+      // handful of samples. Off (or no usable outcomes yet) -> the perk prior alone.
+      const fit = getGlobalBustrState().selfCalFit;
+      if (fit && typeof fit.cal === 'number' && fit.effN > 0) {
+        const wFit = fit.effN / (fit.effN + SELF_CAL_PRIOR_PSEUDO_N);
+        return (1 - wFit) * skillCalibration + wFit * fit.cal;
       }
     }
     return skillCalibration;
@@ -424,10 +446,6 @@
     const override = getUserSettings().skillCalibrationOverride;
     if (typeof override === 'number' && override > 0) return override;
     return CAL_CEILING;
-  }
-
-  function successChanceEnabled() {
-    return getUserSettings().showSuccessChance !== false;
   }
 
   // Play-style modifiers (display-only - see COMPLIANCE NOTE). 'maxcount' shifts
@@ -583,6 +601,19 @@
     return getGlobalBustrState().timestampsArray;
   }
 
+  // Record a just-landed bust in the cached timestamp log so every decay recompute
+  // (fast repaint + master tick) includes it and decays it correctly from now. Replaces
+  // the old scalar penalty bump, which the next recompute overwrote - the penalty would
+  // "snap back" until the ground-truth resync. scheduleGroundTruthResync still replaces the
+  // whole array from Torn's real log a cache-window later, so any client/server skew self-heals.
+  function addOptimisticBustTimestamp() {
+    const now = Date.now() / 1000;
+    const ts = getTimestampsArray();
+    const next = Array.isArray(ts) ? ts.slice() : [];
+    next.unshift(now); // newest-first, matching createTimestampsArray / calcPenaltyThreshold
+    setTimestampsArray(next);
+  }
+
   function setLastFetchTimestampMs() {
     setGlobalBustrState({ lastFetchTimestampMs: Date.now() });
   }
@@ -599,9 +630,6 @@
 
   function setPenaltyScore(newPenaltyScore) {
     setGlobalBustrState({ penaltyScore: newPenaltyScore });
-  }
-  function getPenaltyScore() {
-    return getGlobalBustrState().penaltyScore;
   }
 
   function setAvailableBusts(newAvailableBusts) {
@@ -793,30 +821,116 @@
     return !!o && typeof o === 'object' && typeof o.ts === 'number' && !('note' in o);
   }
 
-  // Grid-search the calibration best matching predicted vs actual outcomes; null if too
-  // few eligible attempts. Fits over ALL penalty ranges (the old low-penalty-only
-  // exclusion treated a symptom of under-weighted penalty, now fixed by PENALTY_WEIGHT).
-  // Searches ONLY calibration, not the penalty weight: fitting both generalized worse
-  // (LOO Brier 0.164 vs 0.148 vs 0.141 for fitting nothing) - extra freedom buys noise.
-  function computeSelfCalibration(outcomeLog) {
+  // The self-calibration fit: the single per-user calibration estimate, fitted from your own logged
+  // outcomes. SSE objective over the [FLOOR,CEILING]/STEP grid, with each outcome weighted by
+  // recency (exp(-ageDays/SELF_CAL_HALF_LIFE_DAYS)) so the number tracks a player getting stronger,
+  // and it returns an effective sample size + an advisory interval instead of one bare number. It
+  // feeds the shrinkage blend in getSkillCalibration; it NEVER enters calcSuccessChanceRaw, so no
+  // per-player free parameter touches the odds model (the v2.8.0 lesson). null when nothing is
+  // fittable. calFlat = the unweighted optimum over the same set, for the trend readout only.
+  function computeSelfCalFit(outcomeLog) {
     const usable = fittableOutcomes(outcomeLog);
-    if (usable.length < SELF_CAL_MIN_SAMPLES) return null;
-    let bestCal = null;
-    let bestError = Infinity;
+    if (usable.length === 0) return null;
+    const now = Date.now();
+    const DAY_MS = 86400000;
+    const rows = usable.map((o) => {
+      const ts = (typeof o.ts === 'number') ? o.ts : now;
+      const ageDays = Math.max(0, (now - ts) / DAY_MS); // clamp future/missing ts to age 0
+      return { h: o.h, pen: o.pen, y: o.success ? 1 : 0, w: Math.exp(-ageDays / SELF_CAL_HALF_LIFE_DAYS) };
+    });
+    let effN = 0;
+    for (const r of rows) effN += r.w;
+    // ONE grid pass tracks both the recency-weighted optimum (the fit we use) and the unweighted
+    // optimum (the lifetime baseline, for the trend indicator).
+    let bestCal = null, bestErr = Infinity, bestFlat = null, bestFlatErr = Infinity;
     for (let c = SELF_CAL_FLOOR; c <= SELF_CAL_CEILING + 1e-9; c += SELF_CAL_STEP) {
-      let error = 0;
-      for (const o of usable) {
-        const predicted = calcSuccessChanceRaw(o.h, o.pen, c) / 100;
-        const actual = o.success ? 1 : 0;
-        const diff = predicted - actual;
-        error += diff * diff;
+      let err = 0, flat = 0;
+      for (const r of rows) {
+        const d = calcSuccessChanceRaw(r.h, r.pen, c) / 100 - r.y;
+        const sq = d * d;
+        err += r.w * sq;
+        flat += sq;
       }
-      if (error < bestError) {
-        bestError = error;
-        bestCal = c;
-      }
+      if (err < bestErr) { bestErr = err; bestCal = c; }
+      if (flat < bestFlatErr) { bestFlatErr = flat; bestFlat = c; }
     }
-    return bestCal === null ? null : Math.round(bestCal * 100) / 100;
+    if (bestCal === null) return null;
+    // Advisory interval from the Gauss-Newton curvature of the weighted SSE at the optimum:
+    // SE ~ sqrt(residualVar / information), information = sum w*(dp/dc)^2 (numeric central
+    // difference). Wide when data is scarce or the curve is flat (cal poorly pinned), narrow when
+    // it is sharp. Advisory ONLY - panel readout now, Phase C probe gate later; never the odds.
+    const eps = SELF_CAL_STEP;
+    let info = 0;
+    for (const r of rows) {
+      const dp = (calcSuccessChanceRaw(r.h, r.pen, bestCal + eps) - calcSuccessChanceRaw(r.h, r.pen, bestCal - eps)) / (200 * eps);
+      info += r.w * dp * dp;
+    }
+    const residualVar = bestErr / Math.max(effN, 1e-9);
+    const se = info > 1e-9 ? Math.sqrt(residualVar / info) : (SELF_CAL_CEILING - SELF_CAL_FLOOR);
+    const clamp = (v) => Math.min(SELF_CAL_CEILING, Math.max(SELF_CAL_FLOOR, v));
+    const r2 = (v) => Math.round(v * 100) / 100;
+    return {
+      cal: r2(bestCal),
+      calFlat: r2(bestFlat),
+      lo: r2(clamp(bestCal - SELF_CAL_CI_Z * se)),
+      hi: r2(clamp(bestCal + SELF_CAL_CI_Z * se)),
+      effN: Math.round(effN * 10) / 10,
+      n: usable.length,
+      ts: now,
+    };
+  }
+
+  // Rising / steady / falling: the recency-weighted fit vs the unweighted lifetime baseline over
+  // the same outcomes. Higher cal = stronger, so a recent fit above the lifetime one means the
+  // player is improving. Threshold > one grid step, to avoid flicker. Advisory text only.
+  function selfCalTrend(fit) {
+    if (!fit || typeof fit.cal !== 'number' || typeof fit.calFlat !== 'number') return 'steady';
+    const d = fit.cal - fit.calFlat;
+    if (d > 0.03) return 'rising';
+    if (d < -0.03) return 'falling';
+    return 'steady';
+  }
+
+  // Self-check on YOUR OWN data (not cross-user): the effective adaptive cal + interval + effN +
+  // trend, plus - when there is enough history for a meaningful split - an out-of-sample temporal
+  // holdout: fit on the oldest 70% of your fittable busts, score the newest 30% with the perk prior
+  // alone (no learning) vs the self-cal blend (mean Brier, lower = better). Honest: in-sample Brier
+  // always favours the unweighted fit by construction, so this instead tests the real claim -
+  // predicting your most RECENT busts. Diagnostic only; never mutates state. null if nothing fits.
+  function selfCalBrierCheck(outcomeLog) {
+    const usable = fittableOutcomes(outcomeLog)
+      .filter((o) => typeof o.ts === 'number')
+      .sort((a, b) => a.ts - b.ts);
+    const fullFit = computeSelfCalFit(outcomeLog);
+    const prior = skillCalibration;
+    const blend = (fit) => {
+      if (!fit || !(fit.effN > 0)) return prior;
+      const w = fit.effN / (fit.effN + SELF_CAL_PRIOR_PSEUDO_N);
+      return (1 - w) * prior + w * fit.cal;
+    };
+    const out = {
+      effCal: Math.round(blend(fullFit) * 100) / 100,
+      lo: fullFit ? fullFit.lo : null,
+      hi: fullFit ? fullFit.hi : null,
+      effN: fullFit ? fullFit.effN : 0,
+      trend: selfCalTrend(fullFit),
+      holdout: null,
+    };
+    if (fittableOutcomes(outcomeLog).length === 0) return null;
+    if (usable.length < 40) return out; // too little for a meaningful 70/30 temporal split
+    const cut = Math.floor(usable.length * 0.7);
+    const train = usable.slice(0, cut);
+    const test = usable.slice(cut);
+    if (test.length === 0) return out;
+    const oldCal = prior; // baseline: perk prior with no learning (self-cal off)
+    const newCal = blend(computeSelfCalFit(train)); // self-cal on: the shrinkage blend
+    const brierOn = (rows, cal) => {
+      let s = 0;
+      for (const o of rows) { const d = calcSuccessChanceRaw(o.h, o.pen, cal) / 100 - (o.success ? 1 : 0); s += d * d; }
+      return Math.round((s / rows.length) * 1e4) / 1e4;
+    };
+    out.holdout = { testN: test.length, brierOld: brierOn(test, oldCal), brierNew: brierOn(test, newCal) };
+    return out;
   }
 
   // Summary for the settings panel: sample count + how often predicted vs actual
@@ -950,7 +1064,7 @@
         threshold: state.penaltyThreshold,
         availableBusts: state.availableBusts,
       },
-      selfCalibrationValue: state.selfCalibrationValue,
+      selfCalFit: state.selfCalFit || null, // the self-calibration fit {cal, calFlat, lo, hi, effN, n, ts}; name-free, local only
       outcomeStats: selfCalibrationStats(outcomeLog),
       outcomeLog,
       timestampsArray: state.timestampsArray || [],
@@ -968,7 +1082,8 @@
         PENALTY_PER_BUST, PENALTY_WINDOW_HOURS, PENALTY_DECAY_C, PENALTY_PCT_ANCHOR, RECENT_HISTORY_WINDOW_DAYS,
         CAL_CEILING, CAL_FLOOR, CAL_NO_PERKS, FULL_BUST_SKILL_BONUS,
         PENALTY_WEIGHT, PENALTY_SATURATION_PCT, PRED_SHRINK_K, PRED_SHRINK_CENTER, OUTCOME_MODEL_VERSION,
-        SELF_CAL_MIN_SAMPLES, SELF_CAL_FLOOR, SELF_CAL_CEILING, SELF_CAL_STEP, OUTCOME_LOG_MAX,
+        SELF_CAL_FLOOR, SELF_CAL_CEILING, SELF_CAL_STEP, OUTCOME_LOG_MAX,
+        SELF_CAL_PRIOR_PSEUDO_N, SELF_CAL_HALF_LIFE_DAYS, SELF_CAL_CI_Z,
       },
     };
   }
@@ -977,10 +1092,11 @@
   // a click on a bust link and Torn's result text appearing.
   let pendingAttempt = null;
 
-  function recordPendingAttempt(hardness, predictedChance) {
+  function recordPendingAttempt(hardness, predictedChance, name) {
     pendingAttempt = {
       hardness,
       predictedChance,
+      name: (typeof name === 'string' ? name : ''),
       penaltyPct: calcPenaltyPct(getTimestampsArray()),
       // Capture the exact model inputs so a logged outcome is reconstructable later
       // (raw/shown from h+pen+lvl+cal). Stored `pred` alone isn't enough - it mixes
@@ -1018,17 +1134,35 @@
       jailed: success ? false : jailed,
       lvl: attempt.lvl, // level + calibration used for the prediction, so raw/shown are
       cal: attempt.cal, // exactly reconstructable for a future leave-one-out recalibration
+      nm: attempt.name || '', // captive name for the local history view only - stripped before any cloud push
       ts: Date.now(),
       m: OUTCOME_MODEL_VERSION, // marks this pen as recorded under the corrected penalty model
     });
     while (outcomeLog.length > OUTCOME_LOG_MAX) outcomeLog.shift();
 
-    const fittedCalibration = computeSelfCalibration(outcomeLog);
-    setGlobalBustrState({ outcomeLog, selfCalibrationValue: fittedCalibration });
+    // Refit the single per-user calibration (recency-weighted grid search over the in-memory log),
+    // run once per deliberate bust. Cheap - one pass over the capped log.
+    setGlobalBustrState({ outcomeLog, selfCalFit: computeSelfCalFit(outcomeLog) });
     CloudSync.pushSoon(); // opt-in cloud backup; no-op unless enabled + signed in (see CloudSync)
 
     const outcomeLabel = success ? 'success' : (jailed ? 'failure (jailed)' : 'failure (clean)');
-    console.log(`[BUSTR] Self-calibration: logged ${outcomeLabel} (hardness ${attempt.hardness}, predicted ${attempt.predictedChance}%) - ${outcomeLog.length} sample(s) recorded.`);
+    console.log(`[BUSTR] Adaptive calibration: logged ${outcomeLabel} (hardness ${attempt.hardness}, predicted ${attempt.predictedChance}%) - ${outcomeLog.length} sample(s) recorded.`);
+    logSelfCalCheck(outcomeLog);
+  }
+
+  // Prints the self-check (effective adaptive cal / interval / effN / trend, + an out-of-sample
+  // holdout once there's enough history). Console only - the honest "did adaptive not get worse
+  // on MY data" readout from the plan. Shared by logOutcome and the on-demand debug button.
+  function logSelfCalCheck(outcomeLog) {
+    const chk = selfCalBrierCheck(outcomeLog);
+    if (!chk) return;
+    let line = `[BUSTR] Adaptive cal: effective cal ${chk.effCal}`
+      + (chk.lo != null ? ` [${chk.lo} - ${chk.hi}]` : '')
+      + `, effN ${chk.effN}, trend ${chk.trend}.`;
+    if (chk.holdout) {
+      line += ` Holdout (predicting your ${chk.holdout.testN} most recent fittable bust(s)): Brier perks-only ${chk.holdout.brierOld} vs adaptive ${chk.holdout.brierNew} (lower is better).`;
+    }
+    console.log(line);
   }
 
   // Drop non-genuine rows (see isRealOutcome) - heals a log that picked up synthetic rows
@@ -1039,7 +1173,7 @@
     const logArr = Array.isArray(state.outcomeLog) ? state.outcomeLog : [];
     const clean = logArr.filter(isRealOutcome);
     if (clean.length !== logArr.length) {
-      setGlobalBustrState({ outcomeLog: clean, selfCalibrationValue: computeSelfCalibration(clean) });
+      setGlobalBustrState({ outcomeLog: clean, selfCalFit: computeSelfCalFit(clean) });
       console.log(`[BUSTR] Removed ${logArr.length - clean.length} non-genuine outcome row(s) from the log.`);
     }
   }
@@ -1189,11 +1323,16 @@
     // Union by timestamp, sorted, capped - so two devices converge to the same log.
     function mergeLogs(a, b) {
       const seen = new Map();
-      for (const o of [...(a || []), ...(b || [])]) if (isRealOutcome(o)) seen.set(o.ts, o);
+      // b (cloud) first, then a (local) - so a local row (which may carry a captive name)
+      // wins a same-timestamp tie over the name-free cloud copy, keeping names in the view.
+      for (const o of [...(b || []), ...(a || [])]) if (isRealOutcome(o)) seen.set(o.ts, o);
       const out = [...seen.values()].sort((x, y) => x.ts - y.ts);
       while (out.length > OUTCOME_LOG_MAX) out.shift();
       return out;
     }
+    // Captive names are a local-only convenience for the history view. Strip them before any
+    // upload so the cloud log stays name-free (see profileSnapshot: never key/name/ID/faction).
+    const stripNm = (logArr) => (logArr || []).map((o) => { const { nm, ...rest } = o; return rest; });
     const enabled = () => !!getUserSettings().cloudSyncEnabled;
     const signedIn = () => { const a = loadAuth(); return !!(a && a.refreshToken); };
 
@@ -1202,12 +1341,16 @@
       const cloud = await fsGet(a.uid);
       const localLog = getGlobalBustrState().outcomeLog || [];
       const merged = mergeLogs(localLog, cloud || []);
-      if (merged.length !== localLog.length) {
-        setGlobalBustrState({ outcomeLog: merged, selfCalibrationValue: computeSelfCalibration(merged) });
+      // Compare by row timestamps, not just length: once both sides sit at the
+      // OUTCOME_LOG_MAX cap, newer rows from the other device push older ones out and the
+      // lengths stay equal, so a length check alone would silently drop the new rows.
+      const sameRows = (x, y) => x.length === y.length && x.every((o, i) => o && y[i] && o.ts === y[i].ts);
+      if (!sameRows(merged, localLog)) {
+        setGlobalBustrState({ outcomeLog: merged, selfCalFit: computeSelfCalFit(merged) });
       }
       // Only write back when the cloud is missing entries we have; when it already holds
       // everything (common on load) this is a pure read (the old code wrote every load).
-      if (merged.length !== (cloud ? cloud.length : 0)) await fsPatch(a.uid, { log: merged, ...profileSnapshot() });
+      if (!sameRows(merged, cloud || [])) await fsPatch(a.uid, { log: stripNm(merged), ...profileSnapshot() });
     }
     // Per-user context backed up alongside the log (opt-in) so the shared model can be tuned
     // against real cross-user data: perks, level, script version, effective cal, and the
@@ -1219,8 +1362,8 @@
         perks: Array.isArray(s.bustPerks) ? s.bustPerks : [],
         level: getPlayerLevel() || 0,
         sv: SCRIPT_VERSION,                 // which build produced these numbers (pre/post-shrink etc.)
-        cal: getSkillCalibration(),         // effective skill calibration currently in use
-        selfCalVal: (typeof s.selfCalibrationValue === 'number' ? s.selfCalibrationValue : null),
+        cal: getSkillCalibration(),         // effective skill calibration currently in use (the shrinkage blend)
+        selfCalVal: (s.selfCalFit && typeof s.selfCalFit.cal === 'number' ? s.selfCalFit.cal : null), // the self-cal fit's point estimate (same cloud field, now single-sourced)
         pda: isPDA(),                       // desktop vs PDA, for segmentation
         // Full settings snapshot (all non-sensitive). Prediction-affecting fields inform the
         // model; the rest let panel usage be studied so it can be pruned on evidence.
@@ -1248,7 +1391,7 @@
         },
       };
     }
-    async function push() { const a = loadAuth(); if (a) await fsPatch(a.uid, { log: getGlobalBustrState().outcomeLog || [], ...profileSnapshot() }); }
+    async function push() { const a = loadAuth(); if (a) await fsPatch(a.uid, { log: stripNm(getGlobalBustrState().outcomeLog || []), ...profileSnapshot() }); }
     function pushSoon() {
       if (!enabled() || !signedIn()) return;
       if (pushTimer) clearTimeout(pushTimer);
@@ -1307,50 +1450,40 @@
     });
   }
 
-  async function fetchBustsData(apiKey) {
-    const url = `https://api.torn.com/user/?selections=log&log=5360&key=${apiKey}`;
+  // Shared Torn API GET. Aborts after FETCH_TIMEOUT_MS (the timer covers reading the body
+  // too), and turns a non-2xx status or a Torn { error } payload into a thrown Error -
+  // the Torn error code rides along as e.tornCode so callers can spot a rejected key.
+  async function fetchTornJson(url) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     try {
       const response = await fetch(url, { signal: controller.signal, cache: 'no-store' });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
       const data = await response.json();
-
       if (data.error) {
         const e = new Error(`Torn API ${data.error.code}: ${data.error.error}`);
         e.tornCode = data.error.code;
         throw e;
       }
-      if (!data.log) throw new Error('Unexpected API response (no log data)');
-      // Stamped only once the response is known-good. Setting it before these checks let a
-      // Torn error count as a successful fetch, throttling the retry and hiding a failing
-      // key behind numbers that merely looked stale.
-      setLastFetchTimestampMs();
       return data;
     } finally {
       clearTimeout(timeout);
     }
   }
 
-  // One-off call for level + perks (rarely change), so this runs once on load.
+  async function fetchBustsData(apiKey) {
+    const data = await fetchTornJson(`https://api.torn.com/user/?selections=log&log=5360&key=${apiKey}`);
+    if (!data.log) throw new Error('Unexpected API response (no log data)');
+    // Stamped only once the response is known-good. Setting it before these checks let a
+    // Torn error count as a successful fetch, throttling the retry and hiding a failing
+    // key behind numbers that merely looked stale.
+    setLastFetchTimestampMs();
+    return data;
+  }
+
+  // Level + perks (rarely change): profileController throttles this to once a day.
   async function fetchProfileData(apiKey) {
-    const url = `https://api.torn.com/user/?selections=basic,perks&key=${apiKey}`;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-    try {
-      const response = await fetch(url, { signal: controller.signal, cache: 'no-store' });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data = await response.json();
-      if (data.error) {
-        const e = new Error(`Torn API ${data.error.code}: ${data.error.error}`);
-        e.tornCode = data.error.code;
-        throw e;
-      }
-      return data;
-    } finally {
-      clearTimeout(timeout);
-    }
+    return fetchTornJson(`https://api.torn.com/user/?selections=basic,perks&key=${apiKey}`);
   }
 
   // Pull every bust-mentioning perk string across all categories.
@@ -1507,10 +1640,8 @@
           log('SuccessfulBust', Date.now());
 
           // Instant local feedback
-          setPenaltyScore(getPenaltyScore() + PENALTY_PER_BUST);
-          setAvailableBusts(calcAvailableBusts(getPenaltyScore(), getPenaltyThreshold()));
-          renderBustrStats({ availableBusts: getAvailableBusts(), penaltyScore: getPenaltyScore() });
-          renderBustrColorClass(getAvailableBusts());
+          addOptimisticBustTimestamp(); // add the bust to the cached log...
+          recalcPenaltyScoreOnly();     // ...and repaint from it, so the decay owns the value (no scalar-bump snap-back)
 
           successfulBustUpdateController();
           logOutcome(true); // self-calibration: attribute to whatever bust link was last clicked
@@ -1603,7 +1734,7 @@
       const predictedRaw = successEl ? parseInt(successEl.textContent, 10) : NaN;
       const predicted = Number.isFinite(predictedRaw) ? predictedRaw : null;
 
-      recordPendingAttempt(hardness, predicted);
+      recordPendingAttempt(hardness, predicted, jailRowName(li));
       log('Bust click captured for self-calibration', { hardness, predicted });
     } catch (err) {
       console.error('[BUSTR]', err);
@@ -1622,7 +1753,7 @@
   ////  VIEW: STYLESHEET
   ////////////////////////////////////////////////////////////////////////////
 
-  const bustrStylesheetHTML = `<style>
+  const bustrStylesheetHTML = `<style id="bustr-stylesheet">
 .bustr--green {--color: ${greenApple}}
 .bustr--orange {--color: ${orangeFulvous}}
 .bustr--red {--color: ${redFlame}}
@@ -1740,17 +1871,95 @@ body.bustr-inactive.bustr--red {--color: inherit;}
 
 #bustr-context.contextMenu___bjhoL {display: none; left: unset; right: -92px; padding: 0 8px; z-index: 9999;}
 .contextMenuActive___e6i_B #bustr-context.contextMenu___bjhoL {display: flex;}
-#bustr-context.contextMenu___bjhoL .arrow___tKP13 {right: unset; left: -6px; border-width: 8px 6px 8px 0; border-color: transparent #444 transparent transparent;}
+/* PDA hold-to-reveal ON (body.bustr-pda-hold): the full readout lives ONLY in the hold
+   popover, so re-hide the contextMenuActive-driven popover above unless it is actively held
+   open (.bustr-show). It already outranks that rule on specificity; !important too (lab4g)
+   because on PDA Torn's own nav styling carries !important (lab4f's badge lesson) and this hide
+   must win whenever the popover is not held open. :not(.bustr-show) leaves a real hold alone.
+   Off PDA / hold OFF the class is absent, so desktop and the hold-off nav readout are unchanged. */
+body.bustr-pda-hold #bustr-context.contextMenu___bjhoL:not(.bustr-show) {display: none !important;}
+/* lab4g: with Hold ON the long-press on the hold targets is BUSTR's, so stop iOS grabbing it for
+   its own link callout/preview - that takeover can cancel the touch (touchcancel), and a
+   cancelled touch now cancels the hold. No-op on Android; absent off PDA / with hold OFF. */
+body.bustr-pda-hold #nav-jail,
+body.bustr-pda-hold #bustr-sidebar-btn {-webkit-touch-callout: none;}
+/* Hold-for-details ON pulls BUSTR OUT of the nav bar entirely: every numeric badge (the inline
+   #nav-jail readout, the mobile badge) AND BUSTR's own nav column / settings button
+   (#bustr-sidebar-btn, which also carries the moved mobile badge) are hidden, so the count AND
+   the BUSTR button live ONLY in the hold popover (#bustr-context, a sibling of #nav-jail, not
+   matched here): a long-press/right-click on Jail reveals busts + penalty % with the BUSTR
+   button underneath (.bustr-ctx-btn below, lab4h). !important, like the jail-only hide above,
+   so Torn's own nav styling (its !important / inline display on the badge) cannot keep it
+   visible on PDA - specificity alone lost (lab4f). Absent off PDA / with hold OFF, so desktop
+   and the hold-off nav (badge + BUSTR column) are unchanged. */
+body.bustr-pda-hold #nav-jail .bustr-stats,
+body.bustr-pda-hold #nav-jail .bustr-mobile-badge,
+body.bustr-pda-hold #bustr-sidebar-btn {display: none !important;}
+/* lab4h: the BUSTR button inside the hold popover. Hidden by default, so the hold-off /
+   non-PDA popover stays stats-only exactly as before; shown only while hold is on, where it is
+   the settings entry point replacing the hidden nav column. cursor:pointer (below) also makes
+   iOS deliver the tap as a click. */
+.bustr-ctx-btn {display: none;}
+/* lab4i: Hold ON - the popover as one neat card. It renders IN FLOW in the JAIL slot, right
+   under the JAIL label (the user's lab4h screenshots), and in flow is what keeps it inside the
+   horizontally scrolling nav strip, so its POSITION is deliberately untouched - only its look.
+   The popover's side padding and Torn's arrow span sat in its flex row beside the stats and
+   pushed them ~10px right of JAIL, so both go and the row centres instead. The stats span
+   becomes the card: dark, bordered, a caret pointing up at JAIL, count and % on ONE line split
+   by a thin divider (shorter than the old stacked pair), the BUSTR button full-width along the
+   bottom. position:relative + z-index lift it over the neighbouring nav labels it overlaps
+   while open. !important on box/size: the span also wears Torn's linkName class, whose PDA
+   styling could otherwise resize or clip it (lab4f lesson). NO display on the card itself: as
+   a flex item it is block already, and a display !important here would outrank the jail-only
+   hide (body.bustr-inactive .bustr-stats). All scoped to body.bustr-pda-hold, so desktop and
+   the hold-OFF popover are unchanged. */
+body.bustr-pda-hold #bustr-context.contextMenu___bjhoL {padding: 0 !important; justify-content: center;}
+body.bustr-pda-hold #bustr-context .bustr-arrow {display: none !important;}
+body.bustr-pda-hold #bustr-context .bustr-stats {
+  flex: 0 0 auto; position: relative; z-index: 2;
+  width: auto !important; max-width: none !important; height: auto !important; overflow: visible !important;
+  margin: 6px 0 2px !important; padding: 4px 5px !important;
+  background: #2a2a2a !important; border: 1px solid #555 !important; border-radius: 6px !important;
+  text-align: center; white-space: nowrap;
+  font-size: 13px !important; font-weight: 700; line-height: 14px !important;
+}
+/* The caret: two stacked border triangles - the outer in the border colour, the inner in the
+   card colour 1px lower, covering the border line under it - so it reads as one outlined notch.
+   Every box property is set in case Torn's linkName class has pseudo-elements of its own. */
+body.bustr-pda-hold #bustr-context .bustr-stats::before,
+body.bustr-pda-hold #bustr-context .bustr-stats::after {
+  content: ""; position: absolute; left: 50%; right: auto; bottom: auto;
+  width: 0; height: 0; margin: 0; padding: 0; background: none; transform: none;
+  border-style: solid; border-color: transparent;
+}
+body.bustr-pda-hold #bustr-context .bustr-stats::before {top: -5px; margin-left: -5px; border-width: 0 5px 5px; border-bottom-color: #555;}
+body.bustr-pda-hold #bustr-context .bustr-stats::after {top: -4px; margin-left: -4px; border-width: 0 4px 4px; border-bottom-color: #2a2a2a;}
+/* Compact OFF: the score / threshold prefix becomes its own small, dim line above the count;
+   its trailing " : " (.bustr-ctx-sep) only makes sense inline, so it goes. :not(.bustr-compact)
+   so this never fights the compact hide further down. */
+body.bustr-pda-hold:not(.bustr-compact) #bustr-context .bustr-ctx-detail {
+  display: block; margin-bottom: 3px; font-size: 9px; font-weight: 400; line-height: 11px; opacity: 0.7;
+}
+body.bustr-pda-hold #bustr-context .bustr-ctx-sep {display: none;}
+/* The % sits beside the count after a thin divider; its severity colour classes still apply. */
+body.bustr-pda-hold #bustr-context .bustr-pct-line {
+  display: inline-block; margin-left: 2px; padding-left: 6px;
+  border-left: 1px solid rgba(255, 255, 255, 0.22);
+  font-size: 11px; line-height: 13px;
+}
+body.bustr-pda-hold #bustr-context .bustr-ctx-btn {
+  display: block; margin: 5px 0 0; padding: 2px 6px; border-radius: 4px;
+  background: rgba(140, 168, 90, 0.18); border: 1px solid rgba(140, 168, 90, 0.45); color: #e6e6e6;
+  font-size: 10px; font-weight: 700; line-height: 12px; text-align: center; white-space: nowrap;
+  cursor: pointer;
+}
+body.bustr-pda-hold #bustr-context .bustr-ctx-btn:active {background: rgba(140, 168, 90, 0.34);}
+/* PDA hold-to-reveal: our OWN show class, independent of Torn's native contextMenuActive
+   state, so a long-press / right-click opens the full readout even when PDA takes the
+   desktop render branch. Two classes outrank the base one-class display:none above - no
+   !important needed. See installPdaHoldPopover / wirePdaHoldHandlers. */
+#bustr-context.contextMenu___bjhoL.bustr-show {display: flex;}
 #bustr-context.contextMenu___bjhoL .arrow___tKP13 {border-color: transparent #373636 transparent transparent; border-width: 6px 5px 6px 0; content: ""; left: unset; right: -6px; top: -6px;}
-
-#prefs-tab-menu #bustr-settings {display: none;}
-#prefs-tab-menu #bustr-settings.active {display: block;}
-#bustr-settings input[type="number"] {height: 24px; width: 48px; padding: 1px 5px; text-align: center;}
-
-#bustr-settings-dropdown {background: #fff;}
-.dark-mode #prefs-tab-menu #bustr-settings-dropdown {background: #444;}
-#prefs-tab-menu #bustr-settings-sidetab.active {background: #fff; color: #999}
-.dark-mode #prefs-tab-menu #bustr-settings-sidetab.active {background: #444; color: #999}
 
 #body .users-list-title {display: flex; justify-content: start; align-items: center;}
 #body .users-list-title .title{width: 269px;}
@@ -1768,11 +1977,17 @@ body.bustr-inactive.bustr--red {--color: inherit;}
 .bustr-success-chance.bustr-sc--red {color: ${redMelon};}
 
 body.bustr-no-hardness .bustr-hardness-score {display: none;}
+/* Only "Show hardness number" hides the number - Compact nav badge no longer does (lab4m). */
 body.bustr-no-success .bustr-success-chance {display: none;}
 
-/* Compact nav badge: show only the "busts left" count, hide the penalty prefix and %
-   line. The mobile tap-detail menu keeps the full readout (#bustr-context, no detail class). */
+/* Compact nav badge: show only the "busts left" count, hide the penalty prefix. On PDA the
+   badge is always compact (the full readout moves to the hold popover). */
 body.bustr-badge-simple .bustr-badge-detail {display: none;}
+/* When the Compact preference is on, the hold popover compacts the same way the nav badge
+   does: hide its "score / threshold :" prefix, leaving busts-left + penalty %. Uses its OWN
+   class (not .bustr-badge-detail), so it is driven by the compact preference rather than PDA's
+   always-on badge-simple state - so holding with compact OFF still reveals the full readout. */
+body.bustr-compact #bustr-context .bustr-ctx-detail {display: none;}
 
 /* Penalty % colour by severity (inverse of the success-chance colours). */
 .bustr-pct-line.bustr-pen--green {color: ${greenApple}; opacity: 1;}
@@ -1811,7 +2026,7 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
 /* Easy Bust / Easy Bail action bar (opt-in; one request per tap). Its own full-width bar
    under the jail filter, so buttons have room and don't wrap into the header's icon columns. */
 .bustr-easy-bar {
-  display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+  display: flex; align-items: center; flex-wrap: wrap; gap: 5px;
   padding: 6px 12px; margin: 0;
   background: rgba(0, 0, 0, 0.06); border-bottom: 1px solid rgba(0, 0, 0, 0.14);
 }
@@ -1829,13 +2044,14 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
 .bustr-easy-btn.bustr-easy-busy {opacity: 0.5; pointer-events: none;}
 .bustr-easy-btn.bustr-easy-bail {background: #c9a84a; border-color: #a2842f;}
 .bustr-easy-btn.bustr-easy-bail:hover {background: #dcbf63;}
-/* Quick Bust / Quick Bail toggle pills: OFF (outlined) or ON (green fill), flipping the
-   opt-in link-relabel mode. Unlike the Easy buttons these fire nothing - they only relabel
-   your OWN bust/bail link so your single click skips Torn's confirm step. */
+/* Quick Bust toggle pill: OFF (outlined) or ON (green fill), flipping the opt-in link-relabel
+   mode. Unlike the Easy buttons it fires nothing - it only relabels your OWN bust link so your
+   single click skips Torn's confirm step. (Quick Bail's toggle lives in the settings panel.)
+   Slim side padding keeps the bar short. */
 .bustr-easy-bar .bustr-quick-toggle {
   cursor: pointer; font-size: 12px; font-weight: 700; white-space: nowrap;
   color: #566b30; background: transparent; border: 1px solid #a9bd82; border-radius: 5px;
-  padding: 3px 10px; user-select: none; line-height: 1.2;
+  padding: 3px 5px; user-select: none; line-height: 1.2;
   transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
 }
 .bustr-easy-bar .bustr-quick-toggle:hover {border-color: #6f8340; color: #3f4f22;}
@@ -1844,13 +2060,16 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
   box-shadow: 0 0 0 1px #8ca05a inset;
 }
 .bustr-easy-bar .bustr-quick-toggle::before {
-  content: '\\2610'; margin-right: 5px; font-weight: 400; opacity: 0.8;
+  content: '\\2610'; margin-right: 2px; font-weight: 400; opacity: 0.8;
 }
 .bustr-easy-bar .bustr-quick-toggle.bustr-on::before {content: '\\2611'; opacity: 1;}
 .bustr-easy-status {
   font-size: 11px; color: #4b5738; margin-left: auto;
   max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* Empty until the first Easy action: take no room (and no flex gap), so it can never wrap
+   onto a blank second line of its own. */
+.bustr-easy-status:empty {display: none;}
 .user-info-list-wrap > li.bustr-easy-done {opacity: 0.5;}
 
 /* Dark theme: only the translucent fill and text need swapping - the solid pills, Easy
@@ -1912,7 +2131,7 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
   background: rgba(200, 70, 70, 0.16); color: ${redMelon};
 }
 #bustr-settings-panel {
-  position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 100000;
+  position: fixed; top: 7vh; left: 50%; transform: translateX(-50%); z-index: 100000;
   width: 280px; max-height: 84vh; overflow-y: auto;
   background: #2b2b2b; color: #ccc; border: 1px solid #111; border-radius: 8px;
   box-shadow: 0 8px 28px rgba(0,0,0,0.7); padding: 12px 14px;
@@ -1932,6 +2151,8 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
 #bustr-settings-panel select {height: 24px; padding: 1px 4px; background: #1a1a1a; color: #ddd;
   border: 1px solid #444; border-radius: 4px; font-size: 11px;}
 #bustr-settings-panel .bustr-hint {color: #888; font-size: 10px; margin: 2px 0 8px;}
+/* Faded "(default N)" note inside a setting's label - matches the hint's muted tone/size. */
+#bustr-settings-panel .bustr-default {color: #888; font-size: 10px; font-weight: 400;}
 #bustr-settings-panel .bustr-section {color: #8ca05a; font-size: 11px; font-weight: bold;
   text-transform: uppercase; letter-spacing: 0.03em; margin: 2px 0 6px;}
 #bustr-settings-panel .bustr-collapsible {cursor: pointer; -webkit-user-select: none; user-select: none;}
@@ -1939,9 +2160,23 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
   transition: transform 0.12s ease;}
 #bustr-settings-panel .bustr-section.bustr-expanded .bustr-caret {transform: rotate(90deg);}
 #bustr-settings-panel .bustr-collapse-body[hidden] {display: none;}
+#bustr-settings-panel .bustr-subsection {color: #8ca05a; font-size: 10px; font-weight: bold; margin: 12px 0 4px; opacity: 0.85;}
+#bustr-settings-panel .bustr-hist-filter {margin-top: 4px;}
+#bustr-settings-panel .bustr-hist-list {max-height: 220px; overflow-y: auto; margin: 4px 0 2px; border: 1px solid #333; border-radius: 4px;}
+#bustr-settings-panel .bustr-hist-row {display: flex; align-items: center; gap: 6px; padding: 4px 6px; font-size: 10px; border-bottom: 1px solid #262626;}
+#bustr-settings-panel .bustr-hist-row:last-child {border-bottom: 0;}
+#bustr-settings-panel .bustr-hist-time {color: #888; white-space: nowrap;}
+#bustr-settings-panel .bustr-hist-name {flex: 1; min-width: 0; color: #ddd; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
+#bustr-settings-panel .bustr-hist-h {color: #9a9a9a; white-space: nowrap;}
+#bustr-settings-panel .bustr-hist-pct {white-space: nowrap; color: #cfcfcf; font-variant-numeric: tabular-nums; min-width: 30px; text-align: right;}
+#bustr-settings-panel .bustr-hist-outcome {width: 8px; height: 8px; border-radius: 50%; flex: none;}
+#bustr-settings-panel .bustr-ho-success {background: #5a8c3a;}
+#bustr-settings-panel .bustr-ho-fail {background: #b5842f;}
+#bustr-settings-panel .bustr-ho-jailed {background: #9c3b3b;}
+#bustr-settings-panel .bustr-hist-empty {color: #777; font-size: 10px; padding: 8px 4px; text-align: center;}
 #bustr-settings-panel hr {border: 0; border-top: 1px solid #3c3c3c; margin: 10px 0;}
 #bustr-settings-panel .bustr-btn {
-  display: block; width: 100%; margin: 6px 0 0; padding: 6px; cursor: pointer;
+  display: block; width: 100%; box-sizing: border-box; margin: 6px 0 0; padding: 6px; cursor: pointer;
   background: #4b5738; color: #fff; border: 1px solid #2c331f; border-radius: 4px; font-size: 11px;
 }
 #bustr-settings-panel .bustr-btn.bustr-danger {background: #5a2d2d; border-color: #3c1f1f;}
@@ -1957,6 +2192,7 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
 }
 #bustr-settings-panel .bustr-q:hover,
 .bustr-easy-bar .bustr-q:hover {background: #6b7d50;}
+.bustr-easy-bar .bustr-q {margin-left: 0;} /* the bar's flex gap already spaces it */
 /* Chips beside a button, never inside one - a nested chip fires the button when tapped. */
 #bustr-settings-panel .bustr-btn-row {display: flex; align-items: center; gap: 7px;}
 #bustr-settings-panel .bustr-btn-row .bustr-btn {flex: 1;}
@@ -2024,7 +2260,10 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
 }
 </style>`;
 
+  // Idempotent: initController re-runs on every Desktop/Mobile viewport flip, and each run
+  // used to append another full copy of this sheet to <head>.
   function renderBustrStylesheet() {
+    if (document.getElementById('bustr-stylesheet')) return;
     const headEl = document.querySelector('head');
     if (headEl) headEl.insertAdjacentHTML('beforeend', bustrStylesheetHTML);
   }
@@ -2111,7 +2350,7 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
   async function requireElement(selectors) {
     try {
       await new Promise((res, rej) => {
-        if (document.querySelector(selectors)) return res();
+        if (document.querySelector(selectors)) { res(); return; }
 
         const maxCycles = 100; // 100 * 50ms = same ~5s timeout as before, 5x fewer queries
         let current = 1;
@@ -2177,20 +2416,142 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
       // Guarded on the badge existing ANYWHERE, not inside #nav-jail: ensureSettingsTrigger
       // moves it into BUSTR's own nav column, where a scoped check would mint a duplicate.
       if (!document.querySelector('.bustr-mobile-badge')) renderMobileBustrNotification();
-      if (document.getElementById('bustr-context')) return;
-
-      const bustrContextMenuHTML = `
-        <div id="bustr-context" class='contextMenu___bjhoL bustr-context-menu'>
-          <span class='linkName___FoKha bustr-stats'>
-          <span class="bustr-stats__penaltyScore">#</span> / <span class="bustr-stats__penaltyThreshold">#</span> : <span class="bustr-stats__availableBusts">#</span>
-          <span class="bustr-pct-line"><span class="bustr-stats__penaltyPct">#</span>%</span>
-          </span>
-          <span class='arrow___tKP13 bustr-arrow'></span>
-        </div>`;
-      jailLinkEl.insertAdjacentHTML('afterend', bustrContextMenuHTML);
+      ensureBustrContextPopover();
     } catch (err) {
       console.error('[BUSTR]', err);
     }
+  }
+
+  ////////////////////////////////////////////////////////////////////////////
+  ////  VIEW: PDA HOLD-TO-REVEAL (press-and-hold / right-click the Jail button)
+  ////////////////////////////////////////////////////////////////////////////
+
+  // The full-readout popover next to the Jail link. Shared by the mobile view AND the PDA
+  // hold feature so there is ONE copy of the markup; renderBustrStats fills its
+  // .bustr-stats__* spans in sync with the inline badge. Needed in the DESKTOP render branch
+  // too, which PDA can hit (wide visualViewport), where renderBustrDesktopView never makes it.
+  // lab4h: it also carries the BUSTR button (.bustr-ctx-btn) under the count. CSS shows it
+  // only with PDA hold on, where the nav column (#bustr-sidebar-btn) is hidden and this is the
+  // way into settings. It sits inside the .bustr-stats span, so the jail-only hide and the
+  // cloned-column strip in buildSidebarButton cover it with no extra code.
+  // lab4i: the " : " after the threshold is its own span (.bustr-ctx-sep) so the hold-ON card,
+  // which puts score / threshold on a line of its own, can drop it; inline it renders as before.
+  function ensureBustrContextPopover() {
+    if (document.getElementById('bustr-context')) return;
+    const jailEl = document.getElementById('nav-jail');
+    if (!jailEl) return;
+    const bustrContextMenuHTML = `
+        <div id="bustr-context" class='contextMenu___bjhoL bustr-context-menu'>
+          <span class='linkName___FoKha bustr-stats'>
+          <span class="bustr-ctx-detail"><span class="bustr-stats__penaltyScore">#</span> / <span class="bustr-stats__penaltyThreshold">#</span><span class="bustr-ctx-sep"> : </span></span><span class="bustr-stats__availableBusts">#</span>
+          <span class="bustr-pct-line"><span class="bustr-stats__penaltyPct">#</span>%</span>
+          <span class="bustr-ctx-btn" role="button">BUSTR</span>
+          </span>
+          <span class='arrow___tKP13 bustr-arrow'></span>
+        </div>`;
+    jailEl.insertAdjacentHTML('afterend', bustrContextMenuHTML);
+    // Wired on the button itself (re-wired whenever the popover is rebuilt): closes the
+    // popover and opens settings, the same toggleSettings the nav column calls. The popover is
+    // never a hold target, so the hold handlers' click capture leaves this tap alone.
+    const pop = document.getElementById('bustr-context');
+    const ctxBtn = pop && pop.querySelector('.bustr-ctx-btn');
+    if (ctxBtn) {
+      ctxBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        pop.classList.remove('bustr-show');
+        toggleSettings();
+      });
+    }
+  }
+
+  // PDA only. Ensure the hold target (the popover) exists and wire the handlers once. A
+  // normal tap still opens Jail; a ~350ms press or a right-click reveals the full readout.
+  // Reversible live via the pdaHoldDetails setting (the handlers re-check it each event), and
+  // completely inert off PDA so desktop is never affected.
+  function installPdaHoldPopover() {
+    if (!isPDA() || getUserSettings().pdaHoldDetails === false) return;
+    ensureBustrContextPopover();
+    if (window.__bustrHoldWired) return; // document-delegated, so wire exactly once per page
+    window.__bustrHoldWired = true;
+    wirePdaHoldHandlers();
+  }
+
+  // Document-level delegation so the handlers survive Torn re-rendering the nav. The hold
+  // target is the Jail link in either render branch (#nav-jail) or, when the badge has been
+  // moved, BUSTR's own nav column (#bustr-sidebar-btn).
+  function wirePdaHoldHandlers() {
+    const HOLD_SEL = '#nav-jail, #bustr-sidebar-btn';
+    const LP_MS = 350;
+    const LP_SLOP = 10; // px of finger travel that turns a hold into a swipe / scroll
+    let lpTimer = null;
+    let lpFired = false;
+    let lpX = 0;
+    let lpY = 0;
+    let touching = false; // a finger is down on a hold target (tells a long-press from a right-click)
+    const enabled = () => getUserSettings().pdaHoldDetails !== false;
+    const popover = () => document.getElementById('bustr-context');
+    const showPopover = () => { if (!enabled()) return; const p = popover(); if (p) p.classList.add('bustr-show'); };
+    const hidePopover = () => { const p = popover(); if (p) p.classList.remove('bustr-show'); };
+    const inHold = (t) => !!(t && t.closest && t.closest(HOLD_SEL));
+    const inPopover = (t) => !!(t && t.closest && t.closest('#bustr-context'));
+    const clearTimer = () => { if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } };
+    const endTouch = () => { clearTimer(); touching = false; };
+
+    document.addEventListener('touchstart', (e) => {
+      if (inHold(e.target) && enabled()) {
+        lpFired = false;
+        clearTimer();
+        const t = e.touches && e.touches[0];
+        lpX = t ? t.clientX : 0;
+        lpY = t ? t.clientY : 0;
+        touching = true;
+        lpTimer = setTimeout(() => { lpTimer = null; lpFired = true; showPopover(); }, LP_MS);
+      } else if (!inPopover(e.target)) {
+        hidePopover(); // a tap anywhere else closes it
+      }
+    }, { passive: true });
+
+    // lab4g: the readout may only open for a finger that STAYS on Jail. Before, a swipe across
+    // the nav strip that merely started on Jail could leave the timer running and pop it open
+    // on its own. Two exits now cancel it:
+    // - Finger travel past LP_SLOP, in the CAPTURE phase so a nav-strip scroller that stops
+    //   propagation can't hide the move (the old bubble-phase listener could miss it). The slop
+    //   lets normal finger jitter through, so a real hold still opens.
+    document.addEventListener('touchmove', (e) => {
+      if (!lpTimer) return;
+      const t = e.touches && e.touches[0];
+      if (!t || Math.abs(t.clientX - lpX) > LP_SLOP || Math.abs(t.clientY - lpY) > LP_SLOP) clearTimer();
+    }, { passive: true, capture: true });
+    // - touchcancel: the OS or the PDA app taking the gesture over (native scroll, an app-level
+    //   swipe) ends the touch with NO touchend. It was unhandled, so the timer still fired.
+    document.addEventListener('touchcancel', endTouch, { passive: true, capture: true });
+
+    document.addEventListener('touchend', (e) => {
+      endTouch();
+      if (lpFired && inHold(e.target)) e.preventDefault(); // swallow the tap that would follow a hold
+    }, { passive: false });
+
+    // Capture phase so we stop the Jail link navigating BEFORE its own handler/href runs.
+    document.addEventListener('click', (e) => {
+      if (inHold(e.target)) {
+        if (lpFired) { e.preventDefault(); e.stopImmediatePropagation(); lpFired = false; }
+      } else if (!inPopover(e.target)) {
+        hidePopover();
+      }
+    }, true);
+
+    // Right-click / PDA long-press context menu: our popover instead of Torn's menu. When the
+    // feature is off, leave the native menu alone (no preventDefault).
+    // lab4g: while a finger is down this only ever OPENS it - on Android the browser's own
+    // long-press also fires contextmenu, a beat after our 350ms timer, and the old unconditional
+    // toggle could shut what the hold had just opened. A mouse right-click (no finger) toggles.
+    document.addEventListener('contextmenu', (e) => {
+      if (!inHold(e.target) || !enabled()) return;
+      e.preventDefault();
+      if (touching) { clearTimer(); lpFired = true; showPopover(); return; }
+      const p = popover();
+      if (p) p.classList.toggle('bustr-show');
+    });
   }
 
   ////////////////////////////////////////////////////////////////////////////
@@ -2241,7 +2602,12 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
         setRenderedView('Mobile');
       }
 
+      installPdaHoldPopover(); // PDA: compact badge + hold-to-reveal popover (no-op off PDA / when disabled)
+
       if (getApiKey() !== undefined) return;
+      // initController re-runs on every viewport flip: keep the existing form (and its
+      // listeners) rather than stacking a second copy on top of it.
+      if (document.getElementById('bustr-form')) return;
 
       // No key saved: render the form and wire up its listeners
       renderBustrForm();
@@ -2266,10 +2632,12 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
   // the API with a bad key (Torn warns repeated invalid-key calls can IP-ban you).
   let fatalKeyError = false;
   let resyncTimer = null;
-  // On PDA a working injected key collapses the key entry to a status line (see
-  // refreshApiKeyState). This latch lets "Use your own key instead" force it back open
-  // without snapping shut on the next panel refresh. Reset each time the panel opens.
-  let apiKeyEntryForced = false;
+  // Access level of the CURRENTLY ACTIVE key (Torn "key/info" access_type: Custom / Public
+  // Only / Minimal / Limited / Full), resolved once per key by detectApiKeyType. Module-local
+  // and never persisted or pushed to cloud - it only drives the "use a custom key" nudge.
+  let apiKeyAccessType = null;
+  let apiKeyTypeInFlight = false;
+  let apiKeyTypeLastTry = 0;
 
   async function loadController() {
     if (isLoading || fatalKeyError) return;
@@ -2422,6 +2790,7 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     resyncSettingsFromStorage(); // pick up changes made in another tab before anything below reads settings
 
     applyBadgeDetail(); // keep the compact/full nav badge in sync (cheap body-class toggle, every page)
+    installPdaHoldPopover(); // PDA: re-ensure the hold-to-reveal popover survives Torn nav re-renders (no-op off PDA)
 
     const onJail = window.location.pathname === '/jailview.php';
     if (SHOW_SETTINGS_PANEL) ensureSettingsUi(); // build the trigger every tick; jail-only scope hides it off-jail via the bustr-inactive CSS
@@ -2446,15 +2815,38 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     }
   }
 
+  // Featherweight companion to masterTick: repaint ONLY the time-decaying penalty badge,
+  // fetch-free, so it counts down smoothly instead of jumping once per 30s tick. Pure local
+  // time-math over the cached log (recalcPenaltyScoreOnly) - zero API calls, so no Torn rate
+  // or cache limit is in play. Idle pages do no work: it returns early while the tab is
+  // hidden, before any history has loaded, and on any second where the floored penalty has
+  // not changed (so it only touches the DOM when the visible number actually moves - roughly
+  // once every few seconds during recovery). The final drop to 0 is painted like any other
+  // change; after that the score stays 0 and every tick returns early.
+  let lastDecayRepaintScore = null;
+  function decayRepaintTick() {
+    if (document.hidden) return;
+    const ts = getTimestampsArray();
+    if (!ts || ts.length === 0) return;
+    const score = calcPenaltyScore(ts);
+    if (score === lastDecayRepaintScore) return;
+    lastDecayRepaintScore = score;
+    if (applyActiveScope(window.location.pathname === '/jailview.php')) return; // jail-only + off jail: badge hidden, nothing to repaint
+    recalcPenaltyScoreOnly();
+  }
+
   let masterTickIntervalId = null;
+  let decayRepaintIntervalId = null;
   function startRefreshLoops() {
     if (masterTickIntervalId !== null) clearInterval(masterTickIntervalId);
+    if (decayRepaintIntervalId !== null) clearInterval(decayRepaintIntervalId);
     const settings = getUserSettings();
     let rate = (typeof settings.statsRefreshRate === 'number' && settings.statsRefreshRate > 0)
       ? settings.statsRefreshRate
       : DEFAULT_REFRESH_SECONDS;
     if (rate < 15) rate = 15; // sane floor
     masterTickIntervalId = setInterval(masterTick, rate * 1000);
+    decayRepaintIntervalId = setInterval(decayRepaintTick, DECAY_REPAINT_MS);
   }
 
   let visibilityListenerAttached = false;
@@ -2593,12 +2985,27 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
 
   // Best-effort captive name from the jail row (status-line fallback when the response
   // doesn't carry it).
+  // Canonical username from a Torn profile anchor. Prefer the title attribute, which Torn
+  // sets to "Name [ID]" - immune to honor-bar markup, per-char SVG name spans and nested
+  // stat badges whose text would otherwise glue onto the username via textContent (the
+  // "ErnieTheBigNose3.74k" bug). Falls back to textContent when there is no title (e.g. a
+  // plain anchor in an AJAX reply). Live-verified: every jail row carries title="Name [ID]".
+  function cleanProfileName(el) {
+    if (!el) return null;
+    const title = (el.getAttribute('title') || '').trim();
+    if (title) {
+      const n = title.replace(/\s*\[\d+\]\s*$/, '').trim();
+      if (n) return n;
+    }
+    const tc = (el.textContent || '').trim();
+    return tc || null;
+  }
+
   function jailRowName(li) {
     if (!li) return null;
     const el = li.querySelector('a.user.name') || li.querySelector('a.user') || li.querySelector('a[href*="profiles.php"]');
     if (!el) return null;
-    const n = (el.textContent || el.getAttribute('title') || '').trim();
-    return n || null;
+    return cleanProfileName(el);
   }
 
   // Read the row's success/hardness overlay into a target descriptor. Shared by sticky-retry
@@ -2677,8 +3084,7 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     try {
       const doc = new DOMParser().parseFromString(raw, 'text/html');
       const a = doc.querySelector('a[href*="profiles.php"]') || doc.querySelector('a');
-      const n = a ? (a.textContent || '').trim() : '';
-      return n || null;
+      return a ? cleanProfileName(a) : null;
     } catch (e) {
       return null;
     }
@@ -2715,7 +3121,7 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     // Self-calibration: freeze the exact inputs so the outcome logs correctly. Only with
     // self-cal on and a numeric hardness (else the row fails the m:2 validity filter anyway).
     if (kind === 'bust' && getUserSettings().selfCalibrationEnabled && Number.isFinite(target.hardness)) {
-      recordPendingAttempt(target.hardness, target.success);
+      recordPendingAttempt(target.hardness, target.success, target.name);
     }
 
     easyActionInFlight = true;
@@ -2745,10 +3151,8 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
           easyRetryId = null;
         } else if (outcome.success) {
           logOutcome(true); // consumes the pending attempt if self-cal recorded one
-          setPenaltyScore(getPenaltyScore() + PENALTY_PER_BUST);
-          setAvailableBusts(calcAvailableBusts(getPenaltyScore(), getPenaltyThreshold()));
-          renderBustrStats({ availableBusts: getAvailableBusts(), penaltyScore: getPenaltyScore() });
-          renderBustrColorClass(getAvailableBusts());
+          addOptimisticBustTimestamp(); // add the bust to the cached log...
+          recalcPenaltyScoreOnly();     // ...and repaint from it, so the decay owns the value (no scalar-bump snap-back)
           easyRetryId = null;
         } else if (data) {
           logOutcome(false, { jailed: outcome.jailed });
@@ -2796,8 +3200,8 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
       anchor.parentNode.insertBefore(bar, anchor);
     }
 
-    // Each control is created once and reused; a stable order is re-applied at the end of
-    // every pass (appendChild moves the node), so the bar self-heals on a header re-render.
+    // Each control is created once and reused; a stable order is checked at the end of every
+    // pass and re-applied only if broken, so the bar self-heals on a header re-render.
 
     // BUSTR label.
     let lbl = bar.querySelector('.bustr-easy-label');
@@ -2808,8 +3212,9 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
       bar.appendChild(lbl);
     }
 
-    // Quick Bust / Quick Bail toggle pills (always shown): a one-tap flip of the opt-in
-    // confirm-skip mode, on the jail page itself.
+    // Quick Bust toggle pill (always shown): a one-tap flip of the opt-in confirm-skip mode, on
+    // the jail page itself. Quick Bail's toggle lives in the settings panel (Jail display, above
+    // the Easy toggles) to keep this bar short; the helper below still handles either key.
     const quickPill = (key, label) => {
       const cls = 'bustr-quick-' + (key === 'quickBust' ? 'bust' : 'bail'); // stable handle
       let p = bar.querySelector('.' + cls);
@@ -2829,15 +3234,14 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
       return p;
     };
     const pillBust = quickPill('quickBust', 'Quick Bust');
-    const pillBail = quickPill('quickBail', 'Quick Bail');
 
-    // "?" explainer for the Quick pills - reuses the panel's shared help card.
+    // "?" explainer for the Quick pill - reuses the panel's shared help card.
     let help = bar.querySelector('.bustr-q');
     if (!help) {
       help = document.createElement('span');
       help.className = 'bustr-q';
       help.textContent = '?';
-      help.title = 'What do these do?';
+      help.title = 'What does this do?';
       help.addEventListener('click', () => {
         ensureSettingsPanelDom(); // guarantees #bustr-help exists before showHelp runs
         showHelp('quickactions', help);
@@ -2858,7 +3262,11 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     if (!refresh) {
       refresh = document.createElement('span');
       refresh.className = 'bustr-jail-refresh';
-      refresh.title = 'Refresh the jail list';
+      // Deliberately NO title: Torn turns a title into its own hover pop-up, which isn't
+      // needed here (and used to stick open after a click). aria-label still names the
+      // button for screen readers without any visible pop-up.
+      refresh.setAttribute('role', 'button');
+      refresh.setAttribute('aria-label', 'Refresh the jail list');
       const refreshGlyph = document.createElement('span');
       refreshGlyph.className = 'bustr-jail-refresh-glyph';
       refreshGlyph.textContent = '↻'; // clockwise arrow (spins inside the static pill on hover)
@@ -2886,19 +3294,38 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     const easyBust = easyBtn('bust', 'Easy Bust', us.easyBust === true);
     const easyBail = easyBtn('bail', 'Easy Bail', us.easyBail === true);
 
-    // Re-apply the canonical left-to-right order every pass. The refresh (↻) sits on the right
-    // in its long-standing spot, as a wide bordered pill with extra left margin so it is a big,
-    // obvious tap target that is hard to confuse with the "?" chip, even on PDA. The "?" stays
-    // beside the Quick pills it explains.
-    // [BUSTR] [Quick Bust] [Quick Bail] [?] [Easy Bust] [Easy Bail] [↻] .... [status]
-    [lbl, pillBust, pillBail, help, easyBust, easyBail, refresh, statusEl]
-      .forEach((el) => { if (el) bar.appendChild(el); });
+    // Canonical left-to-right order. The refresh (↻) sits on the right in its long-standing spot,
+    // as a wide bordered pill with extra left margin so it is a big, obvious tap target that is
+    // hard to confuse with the "?" chip, even on PDA. The "?" stays beside the Quick pill.
+    // [BUSTR] [Quick Bust] [?] [Easy Bust] [Easy Bail] [↻] .... [status]
+    // Re-applied ONLY when something is out of place (first build, an Easy button toggled, a
+    // header re-render). A pass that finds the order intact must not touch the DOM: re-appending
+    // the node under the pointer strands Torn's hover pop-up open (it never gets its mouseleave).
+    // The check matches exactly the state the appends would produce, so skipping is a no-op.
+    const order = [lbl, pillBust, help, easyBust, easyBail, refresh, statusEl].filter(Boolean);
+    const inOrder = order.every((el, i) =>
+      el.parentNode === bar && el.nextElementSibling === (order[i + 1] || null));
+    if (!inOrder) order.forEach((el) => bar.appendChild(el));
   }
 
   // Compact vs full nav badge, toggled by a single body class (the badge exists on
   // every Torn page, so this is a global toggle, not jail-only).
   function applyBadgeDetail() {
-    document.body.classList.toggle('bustr-badge-simple', getUserSettings().navBadgeDetail !== 'full');
+    const us = getUserSettings();
+    // On PDA the full "score / threshold : busts" readout eats scarce nav-bar width, so
+    // collapse the badge to the busts-left count and move the full breakdown behind a
+    // long-press / right-click (see installPdaHoldPopover). Reversible via pdaHoldDetails.
+    // Desktop is untouched and keeps whatever navBadgeDetail is set to.
+    const pdaCompact = isPDA() && us.pdaHoldDetails !== false;
+    document.body.classList.toggle('bustr-badge-simple', pdaCompact || us.navBadgeDetail !== 'full');
+    // PDA hold-to-reveal active: the full readout belongs ONLY in the hold popover, so the
+    // contextMenuActive-driven popover (CSS ~L1884) is suppressed via body.bustr-pda-hold and
+    // reinstated by .bustr-show on a long-press/right-click. With hold OFF the class is absent,
+    // so that rule still shows the full readout in the nav (PDA's inline badge often never inserts).
+    document.body.classList.toggle('bustr-pda-hold', pdaCompact);
+    // The explicit Compact-nav-badge preference (independent of PDA): also compacts the hold
+    // popover. It does not hide the jail hardness number; Show hardness number owns that.
+    document.body.classList.toggle('bustr-compact', us.navBadgeDetail !== 'full');
   }
 
   // Toggle visibility of the hardness number and the success % via body classes.
@@ -2934,10 +3361,6 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
   function updateSetting(key, value) {
     setUserSettings({ ...getUserSettings(), [key]: value });
   }
-  function updateLimit(key, value) {
-    const us = getUserSettings();
-    setUserSettings({ ...us, reminderLimits: { ...us.reminderLimits, [key]: value } });
-  }
   const clampPct = (v) => Math.max(0, Math.min(100, v));
   const numOr = (el, fallback) => { const v = parseFloat(el.value); return isNaN(v) ? fallback : v; };
 
@@ -2960,7 +3383,6 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     const p = document.getElementById('bustr-settings-panel');
     const b = document.getElementById('bustr-settings-backdrop');
     if (!p) return;
-    apiKeyEntryForced = false; // start collapsed each open when a healthy PDA key is active
     populateSettingsPanelInputs(); // resync every field to current settings, not just on first build
     refreshSettingsStatus();
     p.classList.add('bustr-open');
@@ -2985,11 +3407,45 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
   // data) keeps it reflecting everything that currently exists.
   function refitFromExistingOutcomes() {
     const state = getGlobalBustrState();
-    const log = state.outcomeLog || [];
-    if (log.length === 0) return;
-    const fittedCalibration = computeSelfCalibration(log);
-    if (fittedCalibration !== state.selfCalibrationValue) {
-      setGlobalBustrState({ selfCalibrationValue: fittedCalibration });
+    const outcomes = state.outcomeLog || [];
+    if (outcomes.length === 0) return;
+    // Refresh the fit so a backlog (after enabling self-cal, or updating to a build that added the
+    // fit) is reflected without waiting for the next bust. Always rewritten - recency weighting
+    // makes it drift with time even on an unchanged log.
+    setGlobalBustrState({ selfCalFit: computeSelfCalFit(outcomes) });
+  }
+
+  // One-off probe of the ACTIVE key's access level via Torn "key/info", so the panel can
+  // nudge users off a broad Public/Limited/Full key toward a custom key scoped to exactly
+  // what BUSTR reads. Advisory only - a broad key still works. The key is never stored; the
+  // detected type is module-local and never pushed to cloud. Any failure degrades silently.
+  async function detectApiKeyType() {
+    if (apiKeyTypeInFlight || apiKeyAccessType) return;
+    const now = Date.now();
+    if (now - apiKeyTypeLastTry < 60000) return; // don't re-probe on every panel refresh / failure
+    const k = describeApiKey();
+    if (!k.looksValid) return;
+    let key;
+    try { key = getApiKey(); } catch (e) { return; }
+    if (!key) return;
+    apiKeyTypeInFlight = true;
+    apiKeyTypeLastTry = now;
+    try {
+      const data = await fetchTornJson(`https://api.torn.com/key/?selections=info&key=${key}`);
+      if (!data) return;
+      // Torn returns the info fields at the top level; tolerate a nested { info: {...} } too.
+      const info = (data.info && typeof data.info === 'object') ? data.info : data;
+      const at = info && info.access_type;
+      // Adopt the answer only if the probed key is still the active one: a key saved or
+      // cleared while this was in flight must not inherit the old key's access type.
+      if (typeof at === 'string' && at && getApiKey() === key) {
+        apiKeyAccessType = at;
+        refreshApiKeyState();
+      }
+    } catch (e) {
+      /* advisory only - stay silent on any failure (HTTP / Torn error, timeout, bad JSON) */
+    } finally {
+      apiKeyTypeInFlight = false;
     }
   }
 
@@ -3000,17 +3456,18 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     if (!el) return;
     const k = describeApiKey();
     const saved = k.source === 'user override';
-    // A PDA key BUSTR can use: injected, right length, not being rejected. When healthy
-    // there's nothing to enter (PDA supplied it at install), so collapse to the status line
-    // and offer an opt-in override rather than a second "type your key here" box (the
-    // reported PDA double-entry). If it's missing/wrong-length/rejected, the entry stays open.
+    // A PDA key BUSTR can use: injected, right length, not being rejected. If it's
+    // missing/wrong-length/rejected, the entry stays open so a key can be pasted.
     const healthyPda = k.source === 'PDA injected' && k.looksValid && !fatalKeyError;
+    const settled = saved || healthyPda; // a usable key is in play (saved by the user or PDA-injected)
+    // A broad key (Public/Minimal/Limited/Full) works, but hands BUSTR more account access
+    // than it needs. detectApiKeyType resolves the type; when it's not Custom, nudge toward one.
+    const broadKey = settled && apiKeyAccessType && apiKeyAccessType !== 'Custom';
     let msg;
-    // A healthy PDA key reuses the same "API key is saved." line as a user-saved key,
-    // so the two settled states read identically - the button below is what differs
-    // (Clear saved key vs. the opt-in "use your own key" override link).
-    if (saved || healthyPda) msg = 'API key is saved.';
-    else if (k.source === 'PDA injected') msg = 'The key from the PDA app is not working. Enter your own key below to override it.';
+    if (broadKey) msg = `BUSTR is working, but it is using a ${apiKeyAccessType} key. For safety, create a key scoped to only what BUSTR needs (${API_KEY_SELECTIONS}) and save that instead.`;
+    else if (saved) msg = 'API key is saved.';
+    else if (healthyPda) msg = 'BUSTR is using the key from the PDA app. To use your own instead, create or paste one below.';
+    else if (k.source === 'PDA injected') msg = 'The key from the PDA app is not working. Enter your own key below.';
     else if (k.pdaTokenSubstituted) msg = 'The PDA app supplied an EMPTY key, so BUSTR has no key to use. Create one below.';
     else msg = 'No API key set. Create one below.';
     // Say so outright when the key is the wrong length: Torn answers a malformed key with
@@ -3020,17 +3477,18 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     }
     el.textContent = msg;
 
-    // A saved key leaves nothing to type, so collapse the paste field/Save to the status
-    // line plus a Clear button (clearing brings the field back; Clear is hidden with no
-    // saved key). A healthy PDA key collapses the same way but offers an opt-in override
-    // link instead of Clear (no stored override to clear yet).
+    // Your OWN saved non-broad key leaves nothing to do, so collapse the create/paste controls to
+    // the status line plus Clear. A broad key keeps them OPEN so the "Create a key" button is right
+    // there to act on the nudge. Relying on the PDA app's key (settled via healthyPda, nothing
+    // saved by you) also keeps them OPEN - otherwise clearing your own key on PDA falls back to the
+    // PDA key, collapses the entry, and strands you with no way to paste your own again (reported).
     const entry = document.getElementById('bustr-set-apikey-entry');
     const clearBtn = document.getElementById('bustr-set-apikey-clear');
-    const overrideLink = document.getElementById('bustr-set-apikey-override');
-    const collapse = saved || (healthyPda && !apiKeyEntryForced);
+    const collapse = saved && !broadKey;
     if (entry) entry.style.display = collapse ? 'none' : '';
     if (clearBtn) clearBtn.style.display = saved ? '' : 'none';
-    if (overrideLink) overrideLink.style.display = (healthyPda && !apiKeyEntryForced) ? '' : 'none';
+
+    detectApiKeyType(); // fire-and-forget; self-guards, resolves the key type once then nudges
   }
 
   function refreshSettingsStatus() {
@@ -3040,12 +3498,12 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     if (el) {
       const pen = Math.round(calcPenaltyPct(getTimestampsArray()));
       const settings = getUserSettings();
-      const log = getGlobalBustrState().outcomeLog || [];
       let mode = (typeof settings.skillCalibrationOverride === 'number') ? 'manual' : 'auto';
-      if (settings.selfCalibrationEnabled
-        && typeof getGlobalBustrState().selfCalibrationValue === 'number'
-        && typeof settings.skillCalibrationOverride !== 'number') {
-        mode = 'learned';
+      if (typeof settings.skillCalibrationOverride !== 'number' && settings.selfCalibrationEnabled) {
+        const st = getGlobalBustrState();
+        // The shown cal is the shrinkage blend. Call it "self-cal" once the fit carries any weight
+        // (prior-dominated at low effN, converging as data grows); until then it is the perk prior.
+        if (st.selfCalFit && st.selfCalFit.effN > 0) mode = 'adaptive';
       }
       // Version first: this line gets read back in bug reports.
       el.textContent = `BUSTR v${SCRIPT_VERSION} \u00b7 Lvl ${getPlayerLevel()} \u00b7 calibration ${getSkillCalibration().toFixed(2)} (${mode}) \u00b7 current penalty ${pen}%`;
@@ -3070,19 +3528,21 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
 
     const statsEl = document.getElementById('bustr-set-selfcal-stats');
     if (statsEl) {
-      const log = getGlobalBustrState().outcomeLog || [];
-      const stats = selfCalibrationStats(log);
+      const st = getGlobalBustrState();
+      const stats = selfCalibrationStats(st.outcomeLog || []);
       if (!stats) {
         statsEl.textContent = 'No outcomes logged yet. Logging starts the moment this is enabled.';
       } else {
-        // "Usable" counts only outcomes under the current penalty model (see
-        // fittableOutcomes). Pre-v2.7.19 samples froze an inflated penalty% and can't be
-        // fitted, so they're shown but never voted on.
-        const need = Math.max(0, SELF_CAL_MIN_SAMPLES - stats.usable);
+        // "Usable" counts only outcomes under the current penalty model (see fittableOutcomes).
+        // Pre-v2.7.19 samples froze an inflated penalty% and can't be fitted, so they're shown
+        // but never voted on.
         const legacy = stats.n - stats.usable;
-        const fitNote = need > 0
-          ? `needs ${need} more sample(s) before the fit is used`
-          : `fitted calibration: ${getGlobalBustrState().selfCalibrationValue}`;
+        const fit = st.selfCalFit;
+        // Effective cal = what getSkillCalibration actually returns (the blend); the fit's own
+        // [lo - hi] interval and effN show how well-pinned it is and how much it counts.
+        const fitNote = (fit && fit.effN > 0)
+          ? `effective cal ${getSkillCalibration().toFixed(2)} \u00b7 fit ${fit.cal} [${fit.lo} - ${fit.hi}], effN ${fit.effN}, trend ${selfCalTrend(fit)}`
+          : 'no usable outcomes yet (perk baseline until some are logged)';
         const legacyNote = legacy > 0
           ? ` \u00b7 ${legacy} pre-v2.7.19 sample(s) shown but not fitted (recorded under the old penalty model)`
           : '';
@@ -3114,6 +3574,58 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     el.textContent = `At a mid-range target (hardness ~${hMid}, no penalty): ${baseline}% baseline vs ${withPerks}% with your detected perks (${sign}${delta} point${Math.abs(delta) === 1 ? '' : 's'}).`;
   }
 
+  // ---- Bust history view (reads the local outcomeLog; captive names never leave this device) ----
+  function histRangeStart(key) {
+    const now = new Date();
+    if (key === 'today') return new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    if (key === '7d') return Date.now() - 7 * 24 * 60 * 60 * 1000;
+    return 0;
+  }
+  function fmtHistTime(ts, rangeKey) {
+    const d = new Date(ts);
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    if (rangeKey === 'today') return hh + ':' + mm;
+    const mon = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()];
+    return d.getDate() + ' ' + mon + ' ' + hh + ':' + mm;
+  }
+  function renderBustHistory() {
+    try {
+      const listEl = document.getElementById('bustr-hist-list');
+      const sumEl = document.getElementById('bustr-hist-summary');
+      if (!listEl || !sumEl) return;
+      const rangeSel = document.getElementById('bustr-hist-range');
+      const rangeKey = rangeSel ? rangeSel.value : 'today';
+      const start = histRangeStart(rangeKey);
+      const entries = (getGlobalBustrState().outcomeLog || [])
+        .filter((o) => o && typeof o.ts === 'number' && o.ts >= start)
+        .sort((a, b) => b.ts - a.ts);
+      const total = entries.length;
+      const wins = entries.filter((o) => o.success).length;
+      const rate = total ? Math.round((wins / total) * 100) : 0;
+      const label = rangeKey === 'today' ? 'today' : (rangeKey === '7d' ? 'in the last 7 days' : 'all time');
+      sumEl.textContent = total
+        ? total + ' bust' + (total === 1 ? '' : 's') + ' ' + label + ' - ' + wins + ' landed (' + rate + '%).'
+        : 'No busts logged ' + label + '.';
+      if (!total) { listEl.innerHTML = '<div class="bustr-hist-empty">Nothing here yet.</div>'; return; }
+      const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+      listEl.innerHTML = entries.map((o) => {
+        const outClass = o.success ? 'bustr-ho-success' : (o.jailed ? 'bustr-ho-jailed' : 'bustr-ho-fail');
+        const outTitle = o.success ? 'Busted' : (o.jailed ? 'Failed - got jailed' : 'Failed');
+        const name = o.nm ? esc(o.nm) : '-';
+        const pct = (typeof o.pred === 'number') ? o.pred + '%' : '-';
+        const h = (typeof o.h === 'number') ? 'H' + o.h : '';
+        return '<div class="bustr-hist-row">'
+          + '<span class="bustr-hist-outcome ' + outClass + '" title="' + outTitle + '"></span>'
+          + '<span class="bustr-hist-time">' + fmtHistTime(o.ts, rangeKey) + '</span>'
+          + '<span class="bustr-hist-name">' + name + '</span>'
+          + '<span class="bustr-hist-h">' + h + '</span>'
+          + '<span class="bustr-hist-pct">' + pct + '</span>'
+          + '</div>';
+      }).join('');
+    } catch (e) { console.error('[BUSTR] history render failed', e); }
+  }
+
   // Re-reads every input from the persisted settings. Called on first build AND every open
   // (see openSettings), so if on-screen state drifts from storage (e.g. bfcache restore),
   // reopening the panel always shows the truth.
@@ -3123,10 +3635,9 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     const byId = (id) => document.getElementById(id);
     const us = getUserSettings();
 
-    byId('bustr-set-green').value = us.reminderLimits.greenLimit;
-    byId('bustr-set-red').value = us.reminderLimits.redLimit;
     byId('bustr-set-refresh').value = us.statsRefreshRate || DEFAULT_REFRESH_SECONDS;
     byId('bustr-set-hardness').checked = us.showHardnessScore !== false;
+    byId('bustr-set-quickbail').checked = us.quickBail === true;
     byId('bustr-set-easybust').checked = us.easyBust === true;
     byId('bustr-set-easybail').checked = us.easyBail === true;
     byId('bustr-set-success').checked = us.showSuccessChance !== false;
@@ -3138,11 +3649,13 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     byId('bustr-set-playstyle').value = us.playStyle === 'maxcount' ? 'maxcount' : 'safety';
     byId('bustr-set-scope').value = us.activeScope === 'jailOnly' ? 'jailOnly' : 'always';
     byId('bustr-set-badgesimple').checked = us.navBadgeDetail !== 'full';
+    byId('bustr-set-pdahold').checked = us.pdaHoldDetails !== false;
     byId('bustr-set-useperkcal').checked = us.usePerkCalibration === true;
     const cloudBox = byId('bustr-set-cloudsync');
     if (cloudBox) cloudBox.checked = us.cloudSyncEnabled === true && CloudSync.signedIn();
     refreshCloudStatus();
     refreshPerkImpactDisplay();
+    renderBustHistory();
   }
 
   // One-line cloud status for the panel: unavailable / off / synced / error.
@@ -3170,19 +3683,20 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     }
   }
 
-  // Explicit consent before the first cloud enable. Resolves true only on "Enable sync";
-  // nothing signs in or uploads until then.
-  function showCloudConsent() {
+  // Shared Cancel / OK consent card. Resolves true only on the OK button; Cancel or a tap on
+  // the backdrop resolves false. title / okLabel are plain text, bodyHTML is trusted markup
+  // (only ever the fixed strings below - never user or API data).
+  function showConsentModal(title, bodyHTML, okLabel) {
     return new Promise((resolve) => {
       const back = document.createElement('div');
       back.className = 'bustr-consent-backdrop';
       back.innerHTML = `
         <div class="bustr-consent-card">
-          <h3>Enable cloud sync?</h3>
-          <p>Backs up your bust history across your devices, tied to your Torn ID. Stored: your bust stats, plus the perks, level, calibration, BUSTR settings and script version behind your predictions - all to improve BUSTR's model. Never your API key, name, or faction. Switching it off deletes your cloud copy.</p>
+          <h3>${title}</h3>
+          <p>${bodyHTML}</p>
           <div class="bustr-consent-actions">
             <button type="button" class="bustr-btn" id="bustr-consent-cancel">Cancel</button>
-            <button type="button" class="bustr-btn" id="bustr-consent-ok">Enable sync</button>
+            <button type="button" class="bustr-btn" id="bustr-consent-ok">${okLabel}</button>
           </div>
         </div>`;
       const done = (val) => { try { back.remove(); } catch (e) {} resolve(val); };
@@ -3193,28 +3707,25 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     });
   }
 
+  // Explicit consent before the first cloud enable. Resolves true only on "Enable sync";
+  // nothing signs in or uploads until then.
+  function showCloudConsent() {
+    return showConsentModal(
+      'Enable cloud sync?',
+      'Backs up your bust history across your devices, tied to your Torn ID. Stored: your bust stats, plus the perks, level, calibration, BUSTR settings and script version behind your predictions - all to improve BUSTR\'s model. Never your API key, name, or faction. Switching it off deletes your cloud copy.',
+      'Enable sync'
+    );
+  }
+
   // Consent before the FIRST Easy Bust/Bail enable. These fire real requests (unlike Quick,
   // which only relabels your click), so the difference is spelled out. One consent covers
   // both toggles; resolves true only on "Enable".
   function showEasyActionsConsent() {
-    return new Promise((resolve) => {
-      const back = document.createElement('div');
-      back.className = 'bustr-consent-backdrop';
-      back.innerHTML = `
-        <div class="bustr-consent-card">
-          <h3>Enable Easy Bust / Easy Bail?</h3>
-          <p>Unlike Quick actions (which only relabel your own click), this makes BUSTR <b>send the bust/bail request itself</b> when you tap the header button. It is still ONE tap = ONE request, to the same jail page, with no looping or auto-repeat - the button does nothing until you tap it again, and BUSTR only picks which shown target. You decide whether and when to tap. Use at your own discretion.</p>
-          <div class="bustr-consent-actions">
-            <button type="button" class="bustr-btn" id="bustr-consent-cancel">Cancel</button>
-            <button type="button" class="bustr-btn" id="bustr-consent-ok">Enable</button>
-          </div>
-        </div>`;
-      const done = (val) => { try { back.remove(); } catch (e) {} resolve(val); };
-      back.addEventListener('click', (e) => { if (e.target === back) done(false); });
-      document.body.appendChild(back);
-      back.querySelector('#bustr-consent-cancel').addEventListener('click', () => done(false));
-      back.querySelector('#bustr-consent-ok').addEventListener('click', () => done(true));
-    });
+    return showConsentModal(
+      'Enable Easy Bust / Easy Bail?',
+      'Unlike Quick actions (which only relabel your own click), this makes BUSTR <b>send the bust/bail request itself</b> when you tap the header button. It is still ONE tap = ONE request, to the same jail page, with no looping or auto-repeat - the button does nothing until you tap it again, and BUSTR only picks which shown target. You decide whether and when to tap. Use at your own discretion.',
+      'Enable'
+    );
   }
 
   // Turning either Easy toggle ON is gated on a one-time consent (easyActionsConsented).
@@ -3402,22 +3913,21 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
   // Explanations for the "?" chips, kept out of the panel markup so it reads as controls,
   // not an essay.
   const HELP = {
-    budget: ['Bust budget', 'How many more busts BUSTR thinks you can make before failure gets likely. This is the number on the Jail nav badge. It is completely separate from the per-target success %: nothing in this section ever changes a prisoner\'s odds, only the budget count and the colours.'],
-    green: ['Green at', 'The nav badge and page tint turn green when your available-bust count is this number or higher. Default is 3.'],
-    red: ['Red at / below', 'They turn red at this number or below. Default is 0, so red means the budget is spent. Anything between the red and green numbers shows orange.'],
-    refresh: ['Refresh rate', 'How often the on-screen numbers redraw, in seconds. This does NOT control how often BUSTR calls the Torn API. Those calls are throttled separately, to at most once every 35 seconds on the jail page and once every 30 minutes elsewhere, so lowering this costs you nothing in API usage. Minimum 15.'],
+    history: ['Bust history', 'Every bust you have attempted, newest first: the time, who you went for, their hardness, the success % BUSTR predicted, and whether it worked (green dot), failed (amber) or got you jailed (red). The filter counts how many you did today, in the last 7 days, or all time. It reads the same on-device log that powers adaptive calibration - captive names stay on this device and are never uploaded, even with cloud sync on.'],
+    refresh: ['Refresh rate', 'How often the on-screen numbers redraw, in seconds. This does NOT control how often BUSTR calls the Torn API. Those calls are throttled separately: your bust log is fetched at most once every 35 seconds and only while you are on the jail page, and your level/perks at most once a day. Everywhere else the numbers are worked out on your device from the last fetch, with no API call at all, so lowering this costs you nothing in API usage. Minimum 15.'],
     scope: ['Active on', 'Anywhere: the nav badge and colours appear on every Torn page. Jail page only: hides them and pauses background checks everywhere except the jail page. Use it if the badge distracts you while doing other things.'],
     badge: ['Compact nav badge', 'On (default): the Jail nav badge shows how many more busts you can safely make (colour-coded by budget) plus your penalty %, which is coloured by severity - green when low, amber mid, red high, and a heavier red over 100%. Off: it also shows the raw penalty score / threshold prefix. Either way the full breakdown is always available by hovering the badge and in this panel\'s status line, so nothing is lost.'],
+    pdahold: ['Hold Jail for details (PDA)', 'PDA only. On (default): BUSTR leaves the nav bar - no numbers and no BUSTR button there, so it takes none of your nav-bar space. Press and hold the Jail button (or right-click it) to pop up your remaining busts and penalty % (plus the score / threshold when Compact nav badge is off), with the BUSTR button underneath - tap it to open these settings. A normal tap still opens Jail as usual. Off: the badge and the BUSTR button sit in the nav bar as before. Has no effect anywhere except PDA.'],
     display: ['Jail list display', 'These change only what the jail list shows. The list is always sorted easiest-first, and the hardness score and the odds underneath are always calculated the same way regardless.'],
     hardness: ['Hardness number', 'Shows each prisoner\'s hardness score, which is their level multiplied by their remaining jail time plus three hours. Higher means harder to bust.'],
     quickactions: ['Quick actions', 'Optional. When on, BUSTR relabels Torn\'s own bust/bail link to its no-confirmation variant (the button gets a green highlight) so your single click skips the "are you sure?" step. BUSTR never clicks or busts for you - you still press every button yourself, one click per bust. This is the same mechanism the long-running TornTools extension uses. If you run TornTools, turn its own Quick Bust off to use this - the two act on the same link and conflict. Off by default; leave off if you prefer Torn\'s confirmation.'],
     easyactions: ['Easy actions', 'Optional and OFF by default. Adds a one-tap "Easy Bust" / "Easy Bail" button to the jail list header. Unlike Quick actions (which only relabel your own click), tapping this makes BUSTR send the request itself for the single best shown target - bust picks the highest success %, bail picks the cheapest. If a bust fails and that person is still in jail, the next tap retries the same person - until they are busted or no longer in jail - then moves on to the next best target. It is strictly one tap = one request, to the same jail page, with no looping or auto-repeat: the button does nothing until you tap it again, and you decide when to tap. Enabling asks for a one-time confirmation. Use at your own discretion.'],
     success: ['Show success %', 'Shows your estimated chance of busting each prisoner, from their hardness and your current penalty.'],
     sccolour: ['Success % colours', 'Colour thresholds for the per-target percentage: green at or above the first number, red below the second, orange in between. Display only, they never change the percentage itself.'],
-    model: ['Success % model', 'These change the actual predicted number. When more than one applies the priority is: manual override wins, then self-calibration once it has enough data, then the perk baseline.'],
+    model: ['Success % model', 'These change the actual predicted number. When more than one applies the priority is: manual override wins, then adaptive calibration once it has enough data, then the perk baseline.'],
     cal: ['Skill calibration', 'Scales how skilled BUSTR assumes you are at busting. 1.0 means the full perk stack the model was built on (faction Bust Skill plus all LAW courses). Lower it if you have fewer perks, roughly 0.70 for faction perks only. Leave blank for automatic. Worth knowing: this only scales the target-difficulty half of the model, so it cannot compensate for penalty, and forcing it very low to "fix" failures will distort the odds on easy targets.'],
-    selfcal: ['Self-calibration', 'Learns your real success curve from your own results. It records which prisoner you clicked Bust on and whether it worked, entirely on your own machine. It stays inactive until 100 usable samples exist, because fitting on fewer was measured to make predictions worse rather than better. Only used when the manual override above is blank.'],
-    perkcal: ['Perk-based calibration', 'On by default. BUSTR estimates your skill from the bust perks it detects on your account, so an under-perked player is not shown the same odds as a fully-perked one. Validated against real pooled outcomes to improve the success % (most at low and mid penalty); it only affects the success number, never your penalty. Once self-calibration has enough of your own results it takes over. Turn this off to use the plain baseline of 1.0 instead. Torn does not publish how perks map to bust skill, so this is a grounded estimate rather than a measurement.'],
+    selfcal: ['Adaptive calibration', 'Learns your real success curve from your own results. It records which prisoner you clicked Bust on and whether it worked, entirely on your own machine, and uses that to adjust how skilled it assumes you are. It blends your fitted curve with the perk baseline in proportion to how much usable data you have (Bayesian shrinkage), and weights recent busts more than old ones (about a 60-day half-life) so the number tracks you getting stronger as you level and add perks. At zero samples it is identical to the perk baseline, with a lot of data it converges to your own fit, and it can never lurch on a handful of results. The panel shows the effective calibration, a confidence range, an effective sample count, and whether you are trending up or down. Only used when the manual override above is blank; turn it off to use the perk baseline alone. It never changes the underlying model, only how your one skill number is estimated.'],
+    perkcal: ['Perk-based calibration', 'On by default. BUSTR estimates your skill from the bust perks it detects on your account, so an under-perked player is not shown the same odds as a fully-perked one. Validated against real pooled outcomes to improve the success % (most at low and mid penalty); it only affects the success number, never your penalty. Once adaptive calibration has enough of your own results it takes over. Turn this off to use the plain baseline of 1.0 instead. Torn does not publish how perks map to bust skill, so this is a grounded estimate rather than a measurement.'],
     playstyle: ['Play style', 'Changes when the colours flip, not the numbers underneath. Safety uses your thresholds as set. Max count shifts the bands so you spend longer in the orange zone, which raises daily bust volume at the cost of more failures and more jail time. Nothing is ever busted for you either way.'],
     exportHelp: ['Debug export', 'Copies a snapshot for the script maintainer to debug with: your level, settings, detected perks, current penalty, calibration, and logged bust history. Your API key is never included, and this script never reads your username, ID, or faction.'],
     apikey: ['API key', 'BUSTR needs three things from Torn: your level, your bust perks, and your own bust history. "Create a key for BUSTR" opens Torn\'s API page with exactly those (' + API_KEY_SELECTIONS + ') pre-ticked and nothing else, so the key cannot touch your money, mail, or faction. Generate it there, paste it here. The key is stored on this device only and sent nowhere except Torn\'s own API. On PDA the app supplies its own key; saving one here overrides it.'],
@@ -3478,10 +3988,10 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
   }
 
   // Settings-panel section collapse state. Stored locally only (never inside userSettings,
-  // so it is not uploaded with cloud sync). The three heaviest sections start collapsed; we
+  // so it is not uploaded with cloud sync). The four heaviest sections start collapsed; we
   // remember only the user's explicit expand/collapse choices, so everything stays one tap
   // away while the panel opens focused on the controls people actually use.
-  const DEFAULT_COLLAPSED_SECTIONS = ['budget', 'display', 'model'];
+  const DEFAULT_COLLAPSED_SECTIONS = ['display', 'model', 'history', 'clouddebug'];
   function getSectionCollapsed(id) {
     const ui = Store.get(UI_SECTIONS_KEY) || {};
     return Object.prototype.hasOwnProperty.call(ui, id) ? !!ui[id] : DEFAULT_COLLAPSED_SECTIONS.indexOf(id) !== -1;
@@ -3506,50 +4016,60 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
       <div class="bustr-status" id="bustr-set-status"></div>
       <div class="bustr-apierror" id="bustr-set-apierror" style="display:none"></div>
 
-      <div class="bustr-section bustr-collapsible" data-sec="budget"><span class="bustr-caret">▸</span>Bust budget ${q('budget')}</div>
-      <div class="bustr-collapse-body" data-sec-body="budget">
-      <div class="bustr-row"><label>Green at (available busts) ${q('green')}</label><input type="number" id="bustr-set-green" min="0"></div>
-      <div class="bustr-row"><label>Red at / below ${q('red')}</label><input type="number" id="bustr-set-red" min="0"></div>
-      <div class="bustr-row"><label>Refresh rate (sec) ${q('refresh')}</label><input type="number" id="bustr-set-refresh" min="15"></div>
+      <div class="bustr-section">General</div>
       <div class="bustr-row"><label>Active on ${q('scope')}</label>
         <select id="bustr-set-scope">
           <option value="always">Anywhere (always)</option>
           <option value="jailOnly">Jail page only</option>
         </select>
       </div>
-      <div class="bustr-row"><label>Compact nav badge ${q('badge')}</label><input type="checkbox" id="bustr-set-badgesimple"></div>
+      <div class="bustr-row"><label>Refresh rate (sec) ${q('refresh')}</label><input type="number" id="bustr-set-refresh" min="15"></div>
+      <div class="bustr-row"><label>Play style ${q('playstyle')}</label>
+        <select id="bustr-set-playstyle">
+          <option value="safety">Safety (recommended)</option>
+          <option value="maxcount">Max count (aggressive)</option>
+        </select>
       </div>
       <hr>
 
-      <div class="bustr-section bustr-collapsible" data-sec="display"><span class="bustr-caret">▸</span>Jail list display ${q('display')}</div>
+      <div class="bustr-section bustr-collapsible" data-sec="display"><span class="bustr-caret">▸</span>Jail display ${q('display')}</div>
       <div class="bustr-collapse-body" data-sec-body="display">
       <div class="bustr-row"><label>Show hardness number ${q('hardness')}</label><input type="checkbox" id="bustr-set-hardness"></div>
+      <div class="bustr-row"><label>Quick bail (you click, no confirm) ${q('quickactions')}</label><input type="checkbox" id="bustr-set-quickbail"></div>
       <div class="bustr-row"><label>Easy bust (BUSTR fires it) ${q('easyactions')}</label><input type="checkbox" id="bustr-set-easybust"></div>
       <div class="bustr-row"><label>Easy bail (BUSTR fires it)</label><input type="checkbox" id="bustr-set-easybail"></div>
       <div class="bustr-row"><label>Show success % ${q('success')}</label><input type="checkbox" id="bustr-set-success"></div>
-      <div class="bustr-row"><label>Success green at % ${q('sccolour')}</label><input type="number" id="bustr-set-scgreen" min="0" max="100"></div>
-      <div class="bustr-row"><label>Success red below %</label><input type="number" id="bustr-set-scred" min="0" max="100"></div>
+      <div class="bustr-row"><label>Success green at % <span class="bustr-default">(default ${SC_GREEN_AT})</span> ${q('sccolour')}</label><input type="number" id="bustr-set-scgreen" min="0" max="100"></div>
+      <div class="bustr-row"><label>Success red below % <span class="bustr-default">(default ${SC_RED_BELOW})</span></label><input type="number" id="bustr-set-scred" min="0" max="100"></div>
+      <div class="bustr-row"><label>Compact nav badge ${q('badge')}</label><input type="checkbox" id="bustr-set-badgesimple"></div>
+      <div class="bustr-row"><label>Hold Jail for details (PDA) ${q('pdahold')}</label><input type="checkbox" id="bustr-set-pdahold"></div>
       </div>
       <hr>
 
       <div class="bustr-section bustr-collapsible" data-sec="model"><span class="bustr-caret">▸</span>Success % model ${q('model')}</div>
       <div class="bustr-collapse-body" data-sec-body="model">
       <div class="bustr-row"><label>Skill calibration (manual override) ${q('cal')}</label><input type="number" id="bustr-set-cal" min="0" max="2" step="0.05"></div>
-      <div class="bustr-row"><label>Self-calibration (learn from my outcomes) ${q('selfcal')}</label><input type="checkbox" id="bustr-set-selfcal"></div>
+      <div class="bustr-row"><label>Adaptive calibration (learn from my outcomes) ${q('selfcal')}</label><input type="checkbox" id="bustr-set-selfcal"></div>
       <div class="bustr-hint" id="bustr-set-selfcal-stats">No outcomes logged yet.</div>
       <button type="button" class="bustr-btn" id="bustr-set-selfcal-clear">Clear outcome log</button>
+      <button type="button" class="bustr-btn" id="bustr-set-selfcal-check">Calibration check (to console)</button>
       <div class="bustr-row"><label>Use perk-based calibration ${q('perkcal')}</label><input type="checkbox" id="bustr-set-useperkcal"></div>
       <div class="bustr-hint" id="bustr-set-perk-impact"></div>
       <button type="button" class="bustr-btn" id="bustr-set-force-update">Force update level/perks now</button>
       </div>
       <hr>
 
-      <div class="bustr-section">Play style ${q('playstyle')}</div>
-      <div class="bustr-row"><label>Play style</label>
-        <select id="bustr-set-playstyle">
-          <option value="safety">Safety (recommended)</option>
-          <option value="maxcount">Max count (aggressive)</option>
+      <div class="bustr-section bustr-collapsible" data-sec="history"><span class="bustr-caret">▸</span>Bust history ${q('history')}</div>
+      <div class="bustr-collapse-body" data-sec-body="history">
+      <div class="bustr-row bustr-hist-filter"><label>Show</label>
+        <select id="bustr-hist-range">
+          <option value="today">Today</option>
+          <option value="7d">Last 7 days</option>
+          <option value="all">All time</option>
         </select>
+      </div>
+      <div class="bustr-hint" id="bustr-hist-summary"></div>
+      <div id="bustr-hist-list" class="bustr-hist-list"></div>
       </div>
       <hr>
 
@@ -3568,23 +4088,22 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
           style="width:100%;box-sizing:border-box;margin:4px 0;-webkit-text-security:disc;">
         <button type="button" class="bustr-btn" id="bustr-set-apikey-save">Save key</button>
       </div>
-      <a class="bustr-btn bustr-btn-link" id="bustr-set-apikey-override" href="#" style="display:none;">Not working? Use your own key instead</a>
       <button type="button" class="bustr-btn" id="bustr-set-apikey-clear">Clear saved key</button>
       <hr>
 
-      <div class="bustr-section">Cloud sync ${q('cloudsync')}</div>
+      <div class="bustr-section bustr-collapsible" data-sec="clouddebug"><span class="bustr-caret">▸</span>Cloud sync &amp; debug ${q('cloudsync')}</div>
+      <div class="bustr-collapse-body" data-sec-body="clouddebug">
       <div class="bustr-hint" id="bustr-cloud-status"></div>
       <div class="bustr-row"><label>Sync my bust history</label><input type="checkbox" id="bustr-set-cloudsync"></div>
       <div class="bustr-hint">Off by default. Backs up your bust history plus the perks, level, calibration and BUSTR settings behind your predictions, tied to your Torn ID (used to improve BUSTR's model). Never your API key. Works on desktop and on Torn PDA.</div>
       <button type="button" class="bustr-btn" id="bustr-set-cloud-delete">Delete my cloud data</button>
-      <hr>
-
       <div id="bustr-debug-export-section">
-      <div class="bustr-section">Debug export ${q('exportHelp')}</div>
+      <div class="bustr-subsection">Debug export ${q('exportHelp')}</div>
       <button type="button" class="bustr-btn" id="bustr-set-export">Copy debug export</button>
       <textarea id="bustr-set-export-area" readonly style="display:none;width:100%;height:80px;margin-top:6px;background:#1a1a1a;color:#ddd;border:1px solid #444;border-radius:4px;font-size:10px;padding:4px;box-sizing:border-box;"></textarea>
-      <hr>
       </div>
+      </div>
+      <hr>
 
       <div class="bustr-section">Reset</div>
       <div class="bustr-btn-row"><button type="button" class="bustr-btn" id="bustr-set-reset">Reset settings only</button>${q('reset')}</div>
@@ -3616,7 +4135,7 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
 
     populateSettingsPanelInputs(); // initial fill; also re-run every time the panel opens (see openSettings)
 
-    // Collapsible sections: the three heavy ones (budget / display / model) start collapsed
+    // Collapsible sections: the heavy ones (DEFAULT_COLLAPSED_SECTIONS) start collapsed
     // and remember the user's choice across sessions. The help "?" chip inside a heading is
     // intercepted by the capture-phase listener above (it stopPropagation()s), so tapping a
     // chip never toggles the section; the guard here is belt-and-braces.
@@ -3634,16 +4153,21 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
         const collapsed = !body.hidden; // currently expanded -> collapse, and vice versa
         apply(collapsed);
         setSectionCollapsed(id, collapsed);
+        if (id === 'history' && !collapsed) renderBustHistory();
       });
     });
+
+    const histRangeSel = byId('bustr-hist-range');
+    if (histRangeSel) histRangeSel.addEventListener('change', renderBustHistory);
 
     byId('bustr-set-close').addEventListener('click', closeSettings);
 
     // Wire inputs (each persists then re-applies live)
-    byId('bustr-set-green').addEventListener('change', (e) => { updateLimit('greenLimit', Math.max(0, numOr(e.target, 3))); applySettings(); });
-    byId('bustr-set-red').addEventListener('change', (e) => { updateLimit('redLimit', Math.max(0, numOr(e.target, 0))); applySettings(); });
     byId('bustr-set-refresh').addEventListener('change', (e) => { updateSetting('statsRefreshRate', Math.max(15, numOr(e.target, DEFAULT_REFRESH_SECONDS))); startRefreshLoops(); });
     byId('bustr-set-hardness').addEventListener('change', (e) => { updateSetting('showHardnessScore', e.target.checked); applySettings(); });
+    // Quick bail: no consent gate (it only relabels the player's own bail link; nothing is
+    // sent for them) - same persist + live repaint as the jail bar's Quick Bust pill.
+    byId('bustr-set-quickbail').addEventListener('change', (e) => { updateSetting('quickBail', e.target.checked); applyQuickActions(); });
     byId('bustr-set-easybust').addEventListener('change', (e) => { handleEasyToggle('easyBust', e.target); });
     byId('bustr-set-easybail').addEventListener('change', (e) => { handleEasyToggle('easyBail', e.target); });
     byId('bustr-set-success').addEventListener('change', (e) => { updateSetting('showSuccessChance', e.target.checked); applySettings(); });
@@ -3672,6 +4196,11 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     byId('bustr-set-badgesimple').addEventListener('change', (e) => {
       updateSetting('navBadgeDetail', e.target.checked ? 'simple' : 'full');
       applySettings();
+    });
+    byId('bustr-set-pdahold').addEventListener('change', (e) => {
+      updateSetting('pdaHoldDetails', e.target.checked);
+      applySettings();          // applyBadgeDetail: compact on PDA when on, full inline when off
+      installPdaHoldPopover();  // when toggled on, make sure the popover + handlers are in place
     });
     byId('bustr-set-useperkcal').addEventListener('change', (e) => {
       updateSetting('usePerkCalibration', e.target.checked);
@@ -3706,27 +4235,19 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
       setApiKey(key);
       input.value = '';
       fatalKeyError = false;
-      apiKeyEntryForced = false; // saved override now wins; collapse back to the status line
+      apiKeyAccessType = null; // new key: re-probe its access level before nudging again
+      apiKeyTypeLastTry = 0;   // ...right away, not after the 60s re-probe throttle
       setGlobalBustrState({ lastApiError: null });
       refreshApiKeyState();
       refreshSettingsStatus();
       loadController();
       forceProfileRefresh(); // re-read level/perks under the new key too
     });
-    // Escape hatch when PDA's injected key is active but the user wants their own: reveal
-    // the collapsed paste field. The latch keeps it open until a key is saved or reopened.
-    const overrideLink = byId('bustr-set-apikey-override');
-    if (overrideLink) overrideLink.addEventListener('click', (e) => {
-      e.preventDefault();
-      apiKeyEntryForced = true;
-      refreshApiKeyState();
-      const input = byId('bustr-set-apikey');
-      if (input) input.focus();
-    });
     byId('bustr-set-apikey-clear').addEventListener('click', () => {
       deleteApiKey();
       fatalKeyError = false;
-      apiKeyEntryForced = false;
+      apiKeyAccessType = null;
+      apiKeyTypeLastTry = 0;
       setGlobalBustrState({ lastApiError: null });
       refreshApiKeyState();
       refreshSettingsStatus();
@@ -3786,9 +4307,17 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
     wireTwoStepButton(byId('bustr-set-selfcal-clear'),
       'Clear outcome log', 'Tap again to clear the log',
       () => {
-        setGlobalBustrState({ outcomeLog: [], selfCalibrationValue: null });
+        setGlobalBustrState({ outcomeLog: [], selfCalFit: null });
         refreshSettingsStatus();
       });
+    // On-demand self-check: prints the perks-vs-self-cal holdout Brier + effective cal/interval/
+    // effN/trend to the console, so it can be read without waiting for the next bust to log one.
+    const selfCalCheckBtn = byId('bustr-set-selfcal-check');
+    if (selfCalCheckBtn) selfCalCheckBtn.addEventListener('click', () => {
+      logSelfCalCheck(getGlobalBustrState().outcomeLog || []);
+      const el = document.getElementById('bustr-set-selfcal-stats');
+      if (el) el.textContent = 'Calibration check written to the browser console (open DevTools -> Console). ' + el.textContent;
+    });
 
     refreshSettingsStatus();
   }
@@ -3889,6 +4418,9 @@ body.bustr-badge-simple .bustr-badge-detail {display: none;}
       migrateFromLegacyStorage();
       loadGlobalBustrState();
       sanitizeOutcomeLog(); // strip synthetic/test rows before they sync or reach the stats
+      // Upgrading from a build without the adaptive fit: compute it now from the existing log so the
+      // odds use your own results from the first page view, not only after your next bust.
+      try { if (!getGlobalBustrState().selfCalFit) refitFromExistingOutcomes(); } catch (e) { /* advisory; refits on next bust / panel open */ }
       CloudSync.initFromLoad(); // pull+merge cloud history if sync is on (no-op otherwise)
       // Restore the cached level so the success model is right before the API replies
       if (typeof getGlobalBustrState().playerLevel === 'number') {
