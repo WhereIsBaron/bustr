@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BUSTR: Jail Bust Assistant + PDA (Baron)
 // @namespace    http://torn.city.com.dot.com.com
-// @version      2.29.0
+// @version      2.29.1
 // @description  Shows your success odds on every jailed target, and how many busts you can make before failure gets likely
 // @updateURL    https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
 // @downloadURL  https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
@@ -63,7 +63,7 @@
   ////////////////////////////////////////////////////////////////////////////
 
   const DEBUG = false; // true re-enables console logs
-  const SCRIPT_VERSION = '2.29.0'; // keep in sync with @version above
+  const SCRIPT_VERSION = '2.29.1'; // keep in sync with @version above
 
   // Penalty model (documented in-game mechanic): each bust adds a penalty decaying
   // hyperbolically as P0/(1+c*t) - half gone at 10h, zero past 72h. PENALTY_PER_BUST
@@ -1044,10 +1044,14 @@
 
   // Diagnostic snapshot for a maintainer: everything needed to reproduce a user's numbers
   // (version, level, settings, perks, penalty, cal fits, bust history) and nothing else -
-  // no API key (stored separately, see getApiKey()), no username/ID/faction (never read).
+  // no API key (stored separately, see getApiKey()), no username/ID/faction (never read),
+  // no captive names (nm is stripped from the bust history below, same as the cloud push).
   function buildDiagnosticExport() {
     const state = getGlobalBustrState();
     const outcomeLog = Array.isArray(state.outcomeLog) ? state.outcomeLog : [];
+    // Captive names are for the local history view only, so they stay out of the export (same as
+    // stripNm for the cloud push). Non-object rows pass through so a damaged log still exports.
+    const nameFreeLog = outcomeLog.map((o) => { if (!o || typeof o !== 'object') return o; const { nm, ...rest } = o; return rest; });
     return {
       scriptVersion: SCRIPT_VERSION,
       exportedAt: new Date().toISOString(),
@@ -1066,7 +1070,7 @@
       },
       selfCalFit: state.selfCalFit || null, // the self-calibration fit {cal, calFlat, lo, hi, effN, n, ts}; name-free, local only
       outcomeStats: selfCalibrationStats(outcomeLog),
-      outcomeLog,
+      outcomeLog: nameFreeLog, // no nm (see above)
       timestampsArray: state.timestampsArray || [],
       cache: {
         lastProfileFetchMs: state.lastProfileFetchMs || 0, // when level/perks were last pulled
@@ -3929,7 +3933,7 @@ body.bustr-compact #bustr-context .bustr-ctx-detail {display: none;}
     selfcal: ['Adaptive calibration', 'Learns your real success curve from your own results. It records which prisoner you clicked Bust on and whether it worked, entirely on your own machine, and uses that to adjust how skilled it assumes you are. It blends your fitted curve with the perk baseline in proportion to how much usable data you have (Bayesian shrinkage), and weights recent busts more than old ones (about a 60-day half-life) so the number tracks you getting stronger as you level and add perks. At zero samples it is identical to the perk baseline, with a lot of data it converges to your own fit, and it can never lurch on a handful of results. The panel shows the effective calibration, a confidence range, an effective sample count, and whether you are trending up or down. Only used when the manual override above is blank; turn it off to use the perk baseline alone. It never changes the underlying model, only how your one skill number is estimated.'],
     perkcal: ['Perk-based calibration', 'On by default. BUSTR estimates your skill from the bust perks it detects on your account, so an under-perked player is not shown the same odds as a fully-perked one. Validated against real pooled outcomes to improve the success % (most at low and mid penalty); it only affects the success number, never your penalty. Once adaptive calibration has enough of your own results it takes over. Turn this off to use the plain baseline of 1.0 instead. Torn does not publish how perks map to bust skill, so this is a grounded estimate rather than a measurement.'],
     playstyle: ['Play style', 'Changes when the colours flip, not the numbers underneath. Safety uses your thresholds as set. Max count shifts the bands so you spend longer in the orange zone, which raises daily bust volume at the cost of more failures and more jail time. Nothing is ever busted for you either way.'],
-    exportHelp: ['Debug export', 'Copies a snapshot for the script maintainer to debug with: your level, settings, detected perks, current penalty, calibration, and logged bust history. Your API key is never included, and this script never reads your username, ID, or faction.'],
+    exportHelp: ['Debug export', 'Copies a snapshot for the script maintainer to debug with: your level, settings, detected perks, current penalty, calibration, and logged bust history. Your API key and the names of the players you bust are never included, and this script never reads your username, ID, or faction.'],
     apikey: ['API key', 'BUSTR needs three things from Torn: your level, your bust perks, and your own bust history. "Create a key for BUSTR" opens Torn\'s API page with exactly those (' + API_KEY_SELECTIONS + ') pre-ticked and nothing else, so the key cannot touch your money, mail, or faction. Generate it there, paste it here. The key is stored on this device only and sent nowhere except Torn\'s own API. On PDA the app supplies its own key; saving one here overrides it.'],
     cloudsync: ['Cloud sync', 'Off by default. When on, your bust history is backed up to a database and merged across your devices, tied to your verified Torn ID. What is stored: your bust stats (hardness, penalty, outcome, time), plus the context behind your predictions - your bust perks, level, calibration, BUSTR settings and script version - all so BUSTR\'s model can be improved across users. Never stored: your API key, name, ID, or faction. Turning it off deletes your cloud copy. Works on desktop and on Torn PDA (recent versions provide the cross-origin support it needs); where that is missing, the option shows as unavailable.'],
     reset: ['Reset settings', 'Puts every setting in this panel back to its default. Your saved API key and your logged bust history are both kept.'],

@@ -95,10 +95,11 @@ The settings panel has an optional "Copy debug export" button. It is opt-in and
 one-way, with no import. It copies a JSON snapshot of your level, settings,
 detected perks, current penalty, calibration, and logged bust history to your
 clipboard, so you can share it with the maintainer if you want to help improve the
-model. It never includes your API key, Torn username, or faction - the script
-does not read or store those. Your Torn player ID is read only if you turn on
-cloud sync, to identify your cloud backup; even then it stays on your device and
-is kept out of both the export and the uploaded data.
+model. It never includes your API key, your Torn username or faction (the
+script does not read or store those), or the names of the players you bust.
+Your Torn player ID is read only if you turn on cloud sync, to identify your
+cloud backup; even then it stays on your device and is kept out of both the
+export and the uploaded data.
 
 
 REQUIREMENTS
