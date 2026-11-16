@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BUSTR: Jail Bust Assistant + PDA (Baron)
 // @namespace    http://torn.city.com.dot.com.com
-// @version      2.29.4
+// @version      2.29.5
 // @description  Shows your success odds on every jailed target, and how many busts you can make before failure gets likely
 // @updateURL    https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
 // @downloadURL  https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
@@ -63,7 +63,7 @@
   ////////////////////////////////////////////////////////////////////////////
 
   const DEBUG = false; // true re-enables console logs
-  const SCRIPT_VERSION = '2.29.4'; // keep in sync with @version above
+  const SCRIPT_VERSION = '2.29.5'; // keep in sync with @version above
 
   // Penalty model (documented in-game mechanic): each bust adds a penalty decaying
   // hyperbolically as P0/(1+c*t) - half gone at 10h, zero past 72h. PENALTY_PER_BUST
@@ -350,6 +350,20 @@
   const orangeAmber = '#ffbf00';
   const redFlame = '#e64d1a';
   const redMelon = '#ffa8a8';
+  // Darker severity tints for LIGHT backgrounds (Torn's light theme, BUSTR's light cards),
+  // where the pale tints above are near-invisible. Each clears 4.5:1 contrast on white.
+  const LIGHT_GREEN = '#3f6b00';
+  const LIGHT_ORANGE = '#a35a00';
+  const LIGHT_RED = '#c62828';
+  // Stylesheet selector helpers for BUSTR's own cards (theme setting, see applyAppearance).
+  // A card is LIGHT when Theme = Light, or Theme = Auto and Torn is light (no body.dark-mode);
+  // DARK when Theme = Dark, or Auto and Torn is dark. bodyPrefix adds body classes to both arms.
+  function lightSurface(sel, bodyPrefix = 'body') {
+    return `${bodyPrefix}.bustr-theme-light ${sel}, ${bodyPrefix}:not(.dark-mode):not(.bustr-theme-dark) ${sel}`;
+  }
+  function darkSurface(sel, bodyPrefix = 'body') {
+    return `${bodyPrefix}.bustr-theme-dark ${sel}, ${bodyPrefix}.dark-mode:not(.bustr-theme-light) ${sel}`;
+  }
 
   ////////////////////////////////////////////////////////////////////////////
   ////  STATE (default shape)
@@ -378,8 +392,10 @@
         activeScope: 'always',         // 'always' | 'jailOnly' - suppresses nav badge/colours + background fetch off the jail page
         navBadgeDetail: 'simple',      // 'simple' = badge shows only busts-left (default); 'full' = score/threshold : busts + penalty %. Full breakdown always in hover tooltip.
         pdaHoldDetails: false,         // PDA only (default OFF since v2.29.4): ON = force the compact badge + reveal the full readout on a long-press/right-click of the Jail button (see installPdaHoldPopover); OFF = full readout inline like desktop. No effect off PDA.
+        textSize: 'normal',            // 'normal' | 'large' | 'xlarge' - scales all of BUSTR's own text (1x / 1.25x / 1.5x); large+ also bolds the numbers. See applyAppearance.
+        theme: 'auto',                 // 'auto' (follow Torn's light/dark) | 'light' | 'dark' - for BUSTR's own cards (settings, help, consent, PDA hold card). See applyAppearance.
         pdaHoldOffDefaultApplied: true, // marks the v2.29.4 pdaHold-off migration ran (see loadGlobalBustrState); new installs start applied so an opt-in isn't re-flipped.
-        usePerkCalibration: true,      // ON by default (v2.17.0): scales the success/skill term by detected perks. Self-cal overrides once it has samples; penalty term stays on baseline (see getPenaltySkillCalibration).
+        usePerkCalibration: true,     // ON by default (v2.17.0): scales the success/skill term by detected perks. Self-cal overrides once it has samples; penalty term stays on baseline (see getPenaltySkillCalibration).
         perkCalDefaultApplied: true,   // marks the v2.17.0 perk-cal-default migration ran (see loadGlobalBustrState); new installs start applied so a manual opt-out isn't re-flipped.
         cloudSyncEnabled: false,       // off by default; opt-in cloud backup of outcomeLog, behind a consent prompt (see CloudSync)
       },
@@ -1848,7 +1864,7 @@
   margin: 0 0 0 21px;
   outline: none;
   padding: 0 10px 0 10px;
-  font-size: 12px;
+  font-size: calc(12px * var(--bustr-fs, 1));
   font-style: italic;
   vertical-align: middle;
   border: 0;
@@ -1896,10 +1912,10 @@
 #bustr-sidebar-btn .bustr-mobile-badge {
   width: auto; height: auto; min-width: 0; max-width: none; padding: 0;
   display: flex; flex-direction: column; align-items: center; flex: 0 0 auto;
-  line-height: 1; white-space: nowrap; font-size: 9px; font-weight: 700;
+  line-height: 1; white-space: nowrap; font-size: calc(9px * min(var(--bustr-fs, 1), 1.25)); font-weight: 700;
 }
 #bustr-sidebar-btn .bustr-mobile-badge .bustr-pct-line {
-  display: block; font-size: 8px; font-weight: 400; opacity: 0.9; white-space: nowrap;
+  display: block; font-size: calc(8px * min(var(--bustr-fs, 1), 1.25)); font-weight: 400; opacity: 0.9; white-space: nowrap;
 }
 /* Fallback form, badge still in #nav-jail: keep it to one compact line. */
 .bustr-mobile-badge .bustr-pct-line {display: block; font-size: 0.75em; opacity: 0.85; white-space: nowrap;}
@@ -1989,7 +2005,7 @@ body.bustr-pda-hold #bustr-context .bustr-stats {
   margin: 6px 0 2px !important; padding: 4px 5px !important;
   background: #2a2a2a !important; border: 1px solid #555 !important; border-radius: 6px !important;
   text-align: center; white-space: nowrap;
-  font-size: 13px !important; font-weight: 700; line-height: 14px !important;
+  font-size: calc(13px * var(--bustr-fs, 1)) !important; font-weight: 700; line-height: 14px !important;
 }
 /* The caret: two stacked border triangles - the outer in the border colour, the inner in the
    card colour 1px lower, covering the border line under it - so it reads as one outlined notch.
@@ -2006,19 +2022,19 @@ body.bustr-pda-hold #bustr-context .bustr-stats::after {top: -4px; margin-left: 
    its trailing " : " (.bustr-ctx-sep) only makes sense inline, so it goes. :not(.bustr-compact)
    so this never fights the compact hide further down. */
 body.bustr-pda-hold:not(.bustr-compact) #bustr-context .bustr-ctx-detail {
-  display: block; margin-bottom: 3px; font-size: 9px; font-weight: 400; line-height: 11px; opacity: 0.7;
+  display: block; margin-bottom: 3px; font-size: calc(9px * var(--bustr-fs, 1)); font-weight: 400; line-height: 11px; opacity: 0.7;
 }
 body.bustr-pda-hold #bustr-context .bustr-ctx-sep {display: none;}
 /* The % sits beside the count after a thin divider; its severity colour classes still apply. */
 body.bustr-pda-hold #bustr-context .bustr-pct-line {
   display: inline-block; margin-left: 2px; padding-left: 6px;
   border-left: 1px solid rgba(255, 255, 255, 0.22);
-  font-size: 11px; line-height: 13px;
+  font-size: calc(11px * var(--bustr-fs, 1)); line-height: 13px;
 }
 body.bustr-pda-hold #bustr-context .bustr-ctx-btn {
   display: block; margin: 5px 0 0; padding: 2px 6px; border-radius: 4px;
   background: rgba(140, 168, 90, 0.18); border: 1px solid rgba(140, 168, 90, 0.45); color: #e6e6e6;
-  font-size: 10px; font-weight: 700; line-height: 12px; text-align: center; white-space: nowrap;
+  font-size: calc(10px * var(--bustr-fs, 1)); font-weight: 700; line-height: 12px; text-align: center; white-space: nowrap;
   cursor: pointer;
 }
 body.bustr-pda-hold #bustr-context .bustr-ctx-btn:active {background: rgba(140, 168, 90, 0.34);}
@@ -2039,7 +2055,7 @@ body.bustr-pda-hold #bustr-context .bustr-ctx-btn:active {background: rgba(140, 
 #body .user-info-list-wrap > li .info-wrap .hardness {display: block; text-align: center;}
 #body .user-info-list-wrap > li .info-wrap .hardness span.title {display: none;}
 
-.bustr-success-chance {display: block; font-weight: 700; font-size: 11px; line-height: 1.1;}
+.bustr-success-chance {display: block; font-weight: 700; font-size: calc(11px * var(--bustr-fs, 1)); line-height: 1.1;}
 .bustr-success-chance.bustr-sc--green {color: ${greenApple};}
 .bustr-success-chance.bustr-sc--orange {color: ${orangeAmber};}
 .bustr-success-chance.bustr-sc--red {color: ${redMelon};}
@@ -2081,7 +2097,7 @@ body.bustr-compact #bustr-context .bustr-ctx-detail {display: none;}
   margin-left: 6px; padding: 3px 16px; border-radius: 6px;
   background: rgba(111, 131, 64, 0.12); border: 1px solid rgba(111, 131, 64, 0.38);
 }
-.bustr-easy-bar .bustr-jail-refresh-glyph {font-size: 18px; line-height: 1; transition: transform 0.2s ease;}
+.bustr-easy-bar .bustr-jail-refresh-glyph {font-size: calc(18px * var(--bustr-fs, 1)); line-height: 1; transition: transform 0.2s ease;}
 .bustr-easy-bar .bustr-jail-refresh:hover {background: rgba(111, 131, 64, 0.22); border-color: rgba(111, 131, 64, 0.6); color: #4b5c28;}
 .bustr-easy-bar .bustr-jail-refresh:hover .bustr-jail-refresh-glyph {transform: rotate(90deg);}
 /* Touch devices (phones, Torn PDA): keep the reload pill WIDE for an easy finger target, but
@@ -2099,11 +2115,11 @@ body.bustr-compact #bustr-context .bustr-ctx-detail {display: none;}
   background: rgba(0, 0, 0, 0.06); border-bottom: 1px solid rgba(0, 0, 0, 0.14);
 }
 .bustr-easy-bar .bustr-easy-label {
-  font-size: 10px; font-weight: 800; letter-spacing: 0.5px;
+  font-size: calc(10px * var(--bustr-fs, 1)); font-weight: 800; letter-spacing: 0.5px;
   color: #5a6b34; text-transform: uppercase;
 }
 .bustr-easy-btn {
-  cursor: pointer; font-size: 12px; font-weight: 700; white-space: nowrap;
+  cursor: pointer; font-size: calc(12px * var(--bustr-fs, 1)); font-weight: 700; white-space: nowrap;
   color: #14180c; background: #8ca05a; border: 1px solid #6f8340; border-radius: 5px;
   padding: 4px 12px; user-select: none; line-height: 1.2; transition: background 0.12s ease;
 }
@@ -2117,7 +2133,7 @@ body.bustr-compact #bustr-context .bustr-ctx-detail {display: none;}
    single click skips Torn's confirm step. (Quick Bail's toggle lives in the settings panel.)
    Slim side padding keeps the bar short. */
 .bustr-easy-bar .bustr-quick-toggle {
-  cursor: pointer; font-size: 12px; font-weight: 700; white-space: nowrap;
+  cursor: pointer; font-size: calc(12px * var(--bustr-fs, 1)); font-weight: 700; white-space: nowrap;
   color: #566b30; background: transparent; border: 1px solid #a9bd82; border-radius: 5px;
   padding: 3px 5px; user-select: none; line-height: 1.2;
   transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
@@ -2132,7 +2148,7 @@ body.bustr-compact #bustr-context .bustr-ctx-detail {display: none;}
 }
 .bustr-easy-bar .bustr-quick-toggle.bustr-on::before {content: '\\2611'; opacity: 1;}
 .bustr-easy-status {
-  font-size: 11px; color: #4b5738; margin-left: auto;
+  font-size: calc(11px * var(--bustr-fs, 1)); color: #4b5738; margin-left: auto;
   max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 /* Empty until the first Easy action: take no room (and no flex gap), so it can never wrap
@@ -2185,9 +2201,9 @@ body.bustr-compact #bustr-context .bustr-ctx-detail {display: none;}
 .bustr-consent-card {
   max-width: 340px; background: #2b2b2b; color: #ddd; border: 1px solid #111;
   border-radius: 8px; box-shadow: 0 10px 32px rgba(0,0,0,0.7); padding: 16px 18px;
-  font-size: 12px; line-height: 1.5;
+  font-size: calc(12px * var(--bustr-fs, 1)); line-height: 1.5;
 }
-.bustr-consent-card h3 {margin: 0 0 8px; font-size: 14px; color: #8ca05a;}
+.bustr-consent-card h3 {margin: 0 0 8px; font-size: calc(14px * var(--bustr-fs, 1)); color: #8ca05a;}
 .bustr-consent-card p {margin: 0 0 14px;}
 .bustr-consent-actions {display: flex; gap: 8px; justify-content: flex-end;}
 .bustr-consent-actions .bustr-btn {flex: 0 0 auto;}
@@ -2195,43 +2211,43 @@ body.bustr-compact #bustr-context .bustr-ctx-detail {display: none;}
 /* API failure notice. Deliberately loud: the alternative symptom is a 0% penalty, which
    reads as "clear to bust" when the truth is "unknown". */
 .bustr-apierror {
-  margin: 6px 0; padding: 6px 8px; border-radius: 4px; font-size: 11px; line-height: 1.35;
+  margin: 6px 0; padding: 6px 8px; border-radius: 4px; font-size: calc(11px * var(--bustr-fs, 1)); line-height: 1.35;
   background: rgba(200, 70, 70, 0.16); color: ${redMelon};
 }
 #bustr-settings-panel {
   position: fixed; top: 7vh; left: 50%; transform: translateX(-50%); z-index: 100000;
-  width: 280px; max-height: 84vh; overflow-y: auto;
+  width: min(calc(280px * var(--bustr-fs, 1)), 94vw); max-height: 84vh; overflow-y: auto;
   background: #2b2b2b; color: #ccc; border: 1px solid #111; border-radius: 8px;
   box-shadow: 0 8px 28px rgba(0,0,0,0.7); padding: 12px 14px;
-  font-size: 12px; display: none;
+  font-size: calc(12px * var(--bustr-fs, 1)); display: none;
 }
 #bustr-settings-panel.bustr-open {display: block;}
-#bustr-settings-panel h3 {margin: 0 0 4px; font-size: 13px; color: #fff; font-weight: 700;
+#bustr-settings-panel h3 {margin: 0 0 4px; font-size: calc(13px * var(--bustr-fs, 1)); color: #fff; font-weight: 700;
   display: flex; justify-content: space-between; align-items: center;}
-#bustr-settings-panel h3 .bustr-close {cursor: pointer; color: #999; font-size: 16px; line-height: 1;}
+#bustr-settings-panel h3 .bustr-close {cursor: pointer; color: #999; font-size: calc(16px * var(--bustr-fs, 1)); line-height: 1;}
 #bustr-settings-panel h3 .bustr-close:hover {color: #fff;}
-#bustr-settings-panel .bustr-status {color: #8ca05a; font-size: 10px; margin: 0 0 8px;}
+#bustr-settings-panel .bustr-status {color: #8ca05a; font-size: calc(10px * var(--bustr-fs, 1)); margin: 0 0 8px;}
 #bustr-settings-panel .bustr-row {display: flex; align-items: center; justify-content: space-between; margin: 8px 0; gap: 8px;}
 #bustr-settings-panel .bustr-row label {flex: 1; color: #bbb;}
 #bustr-settings-panel input[type="number"] {width: 58px; height: 24px; padding: 1px 6px; text-align: center;
   background: #1a1a1a; color: #ddd; border: 1px solid #444; border-radius: 4px;}
 #bustr-settings-panel input[type="checkbox"] {width: 16px; height: 16px;}
 #bustr-settings-panel select {height: 24px; padding: 1px 4px; background: #1a1a1a; color: #ddd;
-  border: 1px solid #444; border-radius: 4px; font-size: 11px;}
-#bustr-settings-panel .bustr-hint {color: #888; font-size: 10px; margin: 2px 0 8px;}
+  border: 1px solid #444; border-radius: 4px; font-size: calc(11px * var(--bustr-fs, 1));}
+#bustr-settings-panel .bustr-hint {color: #888; font-size: calc(10px * var(--bustr-fs, 1)); margin: 2px 0 8px;}
 /* Faded "(default N)" note inside a setting's label - matches the hint's muted tone/size. */
-#bustr-settings-panel .bustr-default {color: #888; font-size: 10px; font-weight: 400;}
-#bustr-settings-panel .bustr-section {color: #8ca05a; font-size: 11px; font-weight: bold;
+#bustr-settings-panel .bustr-default {color: #888; font-size: calc(10px * var(--bustr-fs, 1)); font-weight: 400;}
+#bustr-settings-panel .bustr-section {color: #8ca05a; font-size: calc(11px * var(--bustr-fs, 1)); font-weight: bold;
   text-transform: uppercase; letter-spacing: 0.03em; margin: 2px 0 6px;}
 #bustr-settings-panel .bustr-collapsible {cursor: pointer; -webkit-user-select: none; user-select: none;}
-#bustr-settings-panel .bustr-caret {display: inline-block; margin-right: 4px; font-size: 9px;
+#bustr-settings-panel .bustr-caret {display: inline-block; margin-right: 4px; font-size: calc(9px * var(--bustr-fs, 1));
   transition: transform 0.12s ease;}
 #bustr-settings-panel .bustr-section.bustr-expanded .bustr-caret {transform: rotate(90deg);}
 #bustr-settings-panel .bustr-collapse-body[hidden] {display: none;}
-#bustr-settings-panel .bustr-subsection {color: #8ca05a; font-size: 10px; font-weight: bold; margin: 12px 0 4px; opacity: 0.85;}
+#bustr-settings-panel .bustr-subsection {color: #8ca05a; font-size: calc(10px * var(--bustr-fs, 1)); font-weight: bold; margin: 12px 0 4px; opacity: 0.85;}
 #bustr-settings-panel .bustr-hist-filter {margin-top: 4px;}
 #bustr-settings-panel .bustr-hist-list {max-height: 220px; overflow-y: auto; margin: 4px 0 2px; border: 1px solid #333; border-radius: 4px;}
-#bustr-settings-panel .bustr-hist-row {display: flex; align-items: center; gap: 6px; padding: 4px 6px; font-size: 10px; border-bottom: 1px solid #262626;}
+#bustr-settings-panel .bustr-hist-row {display: flex; align-items: center; gap: 6px; padding: 4px 6px; font-size: calc(10px * var(--bustr-fs, 1)); border-bottom: 1px solid #262626;}
 #bustr-settings-panel .bustr-hist-row:last-child {border-bottom: 0;}
 #bustr-settings-panel .bustr-hist-time {color: #888; white-space: nowrap;}
 #bustr-settings-panel .bustr-hist-name {flex: 1; min-width: 0; color: #ddd; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
@@ -2241,11 +2257,11 @@ body.bustr-compact #bustr-context .bustr-ctx-detail {display: none;}
 #bustr-settings-panel .bustr-ho-success {background: #5a8c3a;}
 #bustr-settings-panel .bustr-ho-fail {background: #b5842f;}
 #bustr-settings-panel .bustr-ho-jailed {background: #9c3b3b;}
-#bustr-settings-panel .bustr-hist-empty {color: #777; font-size: 10px; padding: 8px 4px; text-align: center;}
+#bustr-settings-panel .bustr-hist-empty {color: #777; font-size: calc(10px * var(--bustr-fs, 1)); padding: 8px 4px; text-align: center;}
 #bustr-settings-panel hr {border: 0; border-top: 1px solid #3c3c3c; margin: 10px 0;}
 #bustr-settings-panel .bustr-btn {
   display: block; width: 100%; box-sizing: border-box; margin: 6px 0 0; padding: 6px; cursor: pointer;
-  background: #4b5738; color: #fff; border: 1px solid #2c331f; border-radius: 4px; font-size: 11px;
+  background: #4b5738; color: #fff; border: 1px solid #2c331f; border-radius: 4px; font-size: calc(11px * var(--bustr-fs, 1));
 }
 #bustr-settings-panel .bustr-btn.bustr-danger {background: #5a2d2d; border-color: #3c1f1f;}
 
@@ -2255,7 +2271,7 @@ body.bustr-compact #bustr-context .bustr-ctx-detail {display: none;}
 .bustr-easy-bar .bustr-q {
   display: inline-flex; align-items: center; justify-content: center;
   width: 14px; height: 14px; margin-left: 5px; border-radius: 50%;
-  background: #4b5738; color: #fff; font-size: 9px; font-weight: 700;
+  background: #4b5738; color: #fff; font-size: calc(9px * var(--bustr-fs, 1)); font-weight: 700;
   cursor: pointer; user-select: none; flex: 0 0 auto; vertical-align: middle;
 }
 #bustr-settings-panel .bustr-q:hover,
@@ -2271,22 +2287,22 @@ body.bustr-compact #bustr-context .bustr-ctx-detail {display: none;}
 /* Sits to the RIGHT of the centred 280px panel: half is 140px, so 152px clears it. */
 #bustr-help {
   position: fixed; z-index: 100001; display: none;
-  top: 50%; left: calc(50% + 152px); transform: translateY(-50%);
-  width: 250px; max-height: 70vh; overflow-y: auto;
+  top: 50%; left: calc(50% + 140px * var(--bustr-fs, 1) + 12px); transform: translateY(-50%);
+  width: calc(250px * var(--bustr-fs, 1)); max-height: 70vh; overflow-y: auto;
   -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
   background: #333; color: #ddd; border: 1px solid #111; border-radius: 8px;
   box-shadow: 0 8px 28px rgba(0,0,0,0.7); padding: 0 12px 12px;
-  font-size: 11px; line-height: 1.45;
+  font-size: calc(11px * var(--bustr-fs, 1)); line-height: 1.45;
 }
 #bustr-help.bustr-open {display: block;}
 /* Header sticks to the top so the close button stays reachable however far the help text
    scrolls (long text was undismissable before). Its background covers the text underneath,
    and the negative margins let it span the card's padding. */
 #bustr-help h4 {position: sticky; top: 0; background: #333; z-index: 1;
-  margin: 0 -12px 5px; padding: 10px 12px 6px; font-size: 11px; color: #8ca05a;
+  margin: 0 -12px 5px; padding: 10px 12px 6px; font-size: calc(11px * var(--bustr-fs, 1)); color: #8ca05a;
   text-transform: uppercase; letter-spacing: 0.03em;
   display: flex; justify-content: space-between; align-items: center;}
-#bustr-help h4 .bustr-help-close {cursor: pointer; color: #999; font-size: 20px; line-height: 1;
+#bustr-help h4 .bustr-help-close {cursor: pointer; color: #999; font-size: calc(20px * var(--bustr-fs, 1)); line-height: 1;
   padding: 0 4px; margin: -4px -4px -4px 8px;}
 #bustr-help h4 .bustr-help-close:hover {color: #fff;}
 /* No room beside the panel on phone/PDA. Centre it, don't bottom-dock: a bottom card sat
@@ -2295,7 +2311,7 @@ body.bustr-compact #bustr-context .bustr-ctx-detail {display: none;}
 @media (max-width: 780px) {
   #bustr-help {
     top: 50%; bottom: auto; left: 50%; transform: translate(-50%, -50%);
-    width: min(88vw, 320px); max-height: 75vh;
+    width: min(88vw, calc(320px * var(--bustr-fs, 1))); max-height: 75vh;
   }
 }
 
@@ -2326,6 +2342,84 @@ body.bustr-compact #bustr-context .bustr-ctx-detail {display: none;}
   #body .user-info-list-wrap > li .info-wrap .reason {width: 171px; height: 24px; border-right: 1px solid rgb(34, 34, 34);}
   #body .user-info-list-wrap > li .info-wrap .hardness {width: 107px;}
 }
+
+/* ---- Text size (Settings > General > Text size; applyAppearance sets the body class) ----
+   Every BUSTR px font-size above is calc(Npx * var(--bustr-fs, 1)), so one variable scales
+   all of BUSTR's own text. Normal = 1, so nothing changes for anyone who leaves it alone.
+   The PDA nav-column badge is capped at 1.25x: it shares one narrow nav slot with its label. */
+body.bustr-fs-lg {--bustr-fs: 1.25;}
+body.bustr-fs-xl {--bustr-fs: 1.5;}
+/* Text that inherits Torn's own size (the hardness number, the desktop nav badge) scales from it. */
+.bustr-hardness-score {font-size: calc(1em * var(--bustr-fs, 1));}
+#nav-jail a .bustr-stats {font-size: calc(1em * var(--bustr-fs, 1));}
+/* Large and up: numbers go bold, and settings labels get heavier so thin text is easier to read. */
+body.bustr-fs-lg .bustr-hardness-score, body.bustr-fs-xl .bustr-hardness-score,
+body.bustr-fs-lg .bustr-pct-line, body.bustr-fs-xl .bustr-pct-line,
+body.bustr-fs-lg #nav-jail .bustr-stats, body.bustr-fs-xl #nav-jail .bustr-stats {font-weight: 700;}
+body.bustr-fs-lg .bustr-success-chance, body.bustr-fs-xl .bustr-success-chance {font-weight: 800;}
+body.bustr-fs-lg #bustr-settings-panel .bustr-row label, body.bustr-fs-xl #bustr-settings-panel .bustr-row label,
+body.bustr-fs-lg #bustr-help, body.bustr-fs-xl #bustr-help {font-weight: 600;}
+body.bustr-fs-lg #bustr-settings-panel input[type="checkbox"], body.bustr-fs-xl #bustr-settings-panel input[type="checkbox"] {width: 20px; height: 20px;}
+body.bustr-fs-lg #bustr-settings-panel input[type="number"], body.bustr-fs-xl #bustr-settings-panel input[type="number"],
+body.bustr-fs-lg #bustr-settings-panel select, body.bustr-fs-xl #bustr-settings-panel select {height: calc(24px * var(--bustr-fs));}
+/* The help card sits beside the panel only when both fit; the wider panels need a wider screen. */
+@media (max-width: 1000px) {
+  body.bustr-fs-lg #bustr-help {top: 50%; bottom: auto; left: 50%; transform: translate(-50%, -50%); width: min(88vw, calc(320px * var(--bustr-fs))); max-height: 75vh;}
+}
+@media (max-width: 1240px) {
+  body.bustr-fs-xl #bustr-help {top: 50%; bottom: auto; left: 50%; transform: translate(-50%, -50%); width: min(88vw, calc(320px * var(--bustr-fs))); max-height: 75vh;}
+}
+
+/* ---- Readable colours on Torn's LIGHT theme ----
+   The success % and penalty % used the pale dark-theme tints (amber #ffbf00, pink #ffa8a8)
+   even on Torn's white background, where they all but vanish. Torn's light theme = no
+   .dark-mode on body; these darker tints only apply there. */
+body:not(.dark-mode) .bustr-success-chance.bustr-sc--green {color: ${LIGHT_GREEN};}
+body:not(.dark-mode) .bustr-success-chance.bustr-sc--orange {color: ${LIGHT_ORANGE};}
+body:not(.dark-mode) .bustr-success-chance.bustr-sc--red {color: ${LIGHT_RED};}
+body:not(.dark-mode) .bustr-pct-line.bustr-pen--green {color: ${LIGHT_GREEN};}
+body:not(.dark-mode) .bustr-pct-line.bustr-pen--orange {color: ${LIGHT_ORANGE};}
+body:not(.dark-mode) .bustr-pct-line.bustr-pen--red {color: ${LIGHT_RED};}
+
+/* ---- BUSTR theme (Settings > General > Theme) for BUSTR's own cards ----
+   The settings panel, help card, consent card and PDA hold card were always dark. Auto (the
+   default) follows Torn: light when Torn is light. Light / Dark force one. Base rules above are
+   the dark look; these override it. Selectors come from lightSurface() (see its comment). */
+${lightSurface('#bustr-settings-panel')} {background: #f6f6f2; color: #222; border-color: #b9b9b0; box-shadow: 0 8px 28px rgba(0,0,0,0.35);}
+${lightSurface('#bustr-settings-panel h3')} {color: #111;}
+${lightSurface('#bustr-settings-panel h3 .bustr-close')}, ${lightSurface('#bustr-help h4 .bustr-help-close')} {color: #555;}
+${lightSurface('#bustr-settings-panel h3 .bustr-close:hover')}, ${lightSurface('#bustr-help h4 .bustr-help-close:hover')} {color: #000;}
+${lightSurface('#bustr-settings-panel .bustr-row label')} {color: #222;}
+${lightSurface('#bustr-settings-panel input[type="number"]')}, ${lightSurface('#bustr-settings-panel select')} {background: #fff; color: #111; border-color: #999;}
+${lightSurface('#bustr-settings-panel .bustr-hint')}, ${lightSurface('#bustr-settings-panel .bustr-default')}, ${lightSurface('#bustr-settings-panel .bustr-hist-time')}, ${lightSurface('#bustr-settings-panel .bustr-hist-empty')} {color: #5c5c5c;}
+${lightSurface('#bustr-settings-panel .bustr-status')}, ${lightSurface('#bustr-settings-panel .bustr-section')}, ${lightSurface('#bustr-settings-panel .bustr-subsection')} {color: #48601c;}
+${lightSurface('#bustr-settings-panel .bustr-hist-list')} {border-color: #ccc;}
+${lightSurface('#bustr-settings-panel .bustr-hist-row')} {border-bottom-color: #e0e0da;}
+${lightSurface('#bustr-settings-panel .bustr-hist-name')} {color: #1a1a1a;}
+${lightSurface('#bustr-settings-panel .bustr-hist-h')} {color: #4a4a4a;}
+${lightSurface('#bustr-settings-panel .bustr-hist-pct')} {color: #222;}
+${lightSurface('#bustr-settings-panel hr')} {border-top-color: #d4d4cc;}
+${lightSurface('.bustr-apierror')} {background: rgba(198, 40, 40, 0.1); color: ${LIGHT_RED};}
+${lightSurface('#bustr-help')} {background: #fbfbf8; color: #222; border-color: #b9b9b0; box-shadow: 0 8px 28px rgba(0,0,0,0.35);}
+${lightSurface('#bustr-help h4')} {background: #fbfbf8; color: #48601c;}
+${lightSurface('.bustr-consent-card')} {background: #f6f6f2; color: #222; border-color: #b9b9b0; box-shadow: 0 10px 32px rgba(0,0,0,0.35);}
+${lightSurface('.bustr-consent-card h3')} {color: #48601c;}
+/* PDA hold card: light card, darker severity tints so the numbers stay readable on it. */
+${lightSurface('#bustr-context .bustr-stats', 'body.bustr-pda-hold')} {background: #fbfbf8 !important; border-color: #a8a8a0 !important;}
+${lightSurface('#bustr-context .bustr-stats::before', 'body.bustr-pda-hold')} {border-bottom-color: #a8a8a0;}
+${lightSurface('#bustr-context .bustr-stats::after', 'body.bustr-pda-hold')} {border-bottom-color: #fbfbf8;}
+${lightSurface('#bustr-context .bustr-pct-line', 'body.bustr-pda-hold')} {border-left-color: rgba(0, 0, 0, 0.2);}
+${lightSurface('#bustr-context .bustr-ctx-btn', 'body.bustr-pda-hold')} {color: #222; background: rgba(111, 131, 64, 0.16); border-color: rgba(111, 131, 64, 0.55);}
+${lightSurface('#bustr-context .bustr-stats', 'body.bustr--green')} {--color: ${LIGHT_GREEN};}
+${lightSurface('#bustr-context .bustr-stats', 'body.bustr--orange')} {--color: ${LIGHT_ORANGE};}
+${lightSurface('#bustr-context .bustr-stats', 'body.bustr--red')} {--color: ${LIGHT_RED};}
+${lightSurface('#bustr-context .bustr-pct-line.bustr-pen--green')} {color: ${LIGHT_GREEN};}
+${lightSurface('#bustr-context .bustr-pct-line.bustr-pen--orange')} {color: ${LIGHT_ORANGE};}
+${lightSurface('#bustr-context .bustr-pct-line.bustr-pen--red')} {color: ${LIGHT_RED};}
+/* Dark card forced (or Auto) while Torn is light: keep the card's pale tints, which read on dark. */
+${darkSurface('#bustr-context .bustr-pct-line.bustr-pen--green')} {color: ${greenApple};}
+${darkSurface('#bustr-context .bustr-pct-line.bustr-pen--orange')} {color: ${orangeAmber};}
+${darkSurface('#bustr-context .bustr-pct-line.bustr-pen--red')} {color: ${redMelon};}
 </style>`;
 
   // Idempotent: initController re-runs on every Desktop/Mobile viewport flip, and each run
@@ -3433,8 +3527,20 @@ body.bustr-compact #bustr-context .bustr-ctx-detail {display: none;}
     document.body.classList.toggle('bustr-compact', us.navBadgeDetail !== 'full');
   }
 
+  // Text size + theme, as body classes read by the stylesheet (--bustr-fs scale; lightSurface /
+  // darkSurface selectors). Theme 'auto' sets no class, so the CSS follows Torn's body.dark-mode.
+  function applyAppearance() {
+    const us = getUserSettings();
+    const cl = document.body.classList;
+    cl.toggle('bustr-fs-lg', us.textSize === 'large');
+    cl.toggle('bustr-fs-xl', us.textSize === 'xlarge');
+    cl.toggle('bustr-theme-light', us.theme === 'light');
+    cl.toggle('bustr-theme-dark', us.theme === 'dark');
+  }
+
   // Toggle visibility of the hardness number and the success % via body classes.
   function applyJailVisibility() {
+    applyAppearance();
     document.body.classList.toggle('bustr-no-hardness', getUserSettings().showHardnessScore === false);
     document.body.classList.toggle('bustr-no-success', getUserSettings().showSuccessChance === false);
   }
@@ -3754,6 +3860,8 @@ body.bustr-compact #bustr-context .bustr-ctx-detail {display: none;}
     byId('bustr-set-selfcal').checked = us.selfCalibrationEnabled === true;
     byId('bustr-set-playstyle').value = us.playStyle === 'maxcount' ? 'maxcount' : 'safety';
     byId('bustr-set-scope').value = us.activeScope === 'jailOnly' ? 'jailOnly' : 'always';
+    byId('bustr-set-textsize').value = ['large', 'xlarge'].includes(us.textSize) ? us.textSize : 'normal';
+    byId('bustr-set-theme').value = ['light', 'dark'].includes(us.theme) ? us.theme : 'auto';
     byId('bustr-set-badgesimple').checked = us.navBadgeDetail !== 'full';
     byId('bustr-set-pdahold').checked = us.pdaHoldDetails !== false;
     byId('bustr-set-useperkcal').checked = us.usePerkCalibration === true;
@@ -4023,6 +4131,8 @@ body.bustr-compact #bustr-context .bustr-ctx-detail {display: none;}
     refresh: ['Refresh rate', 'How often the on-screen numbers redraw, in seconds. This does NOT control how often BUSTR calls the Torn API. Those calls are throttled separately: your bust log is fetched at most once every 35 seconds and only while you are on the jail page, and your level/perks at most once a day. Everywhere else the numbers are worked out on your device from the last fetch, with no API call at all, so lowering this costs you nothing in API usage. Minimum 15.'],
     scope: ['Active on', 'Anywhere: the nav badge and colours appear on every Torn page. Jail page only: hides them and pauses background checks everywhere except the jail page. Use it if the badge distracts you while doing other things.'],
     badge: ['Compact nav badge', 'On (default): the Jail nav badge shows how many more busts you can safely make (colour-coded by budget) plus your penalty %, which is coloured by severity - green when low, amber mid, red high, and a heavier red over 100%. Off: it also shows the raw penalty score / threshold prefix. Either way the full breakdown is always available by hovering the badge and in this panel\'s status line, so nothing is lost.'],
+    textsize: ['Text size', 'Makes all of BUSTR’s text bigger: the success % and hardness number on the jail page, the Jail nav badge, and these settings. Large is 1.25x, Extra large 1.5x, and both also make the numbers bold. Normal (default) is the standard size. On PDA the small badge in the nav bar grows a little less, so it still fits its slot.'],
+    theme: ['Theme', 'Light or dark look for BUSTR’s own windows: these settings, the help card, and the PDA hold card. Auto (default) follows Torn - light when you use Torn’s light mode, dark in dark mode. Light and Dark keep that look whatever Torn uses. The colours on the jail page itself always follow Torn.'],
     pdahold: ['Hold Jail for details (PDA)', 'PDA only. Off by default. On: BUSTR leaves the nav bar - no numbers and no BUSTR button there, so it takes none of your nav-bar space. Press and hold the Jail button (or right-click it) to pop up your remaining busts and penalty % (plus the score / threshold when Compact nav badge is off), with the BUSTR button underneath - tap it to open these settings. A normal tap still opens Jail as usual. Off (default): the badge and the BUSTR button sit in the nav bar as before. Has no effect anywhere except PDA.'],
     display: ['Jail list display', 'These change only what the jail list shows. The list is always sorted easiest-first, and the hardness score and the odds underneath are always calculated the same way regardless.'],
     hardness: ['Hardness number', 'Shows each prisoner\'s hardness score, which is their level multiplied by their remaining jail time plus three hours. Higher means harder to bust.'],
@@ -4134,6 +4244,20 @@ body.bustr-compact #bustr-context .bustr-ctx-detail {display: none;}
         <select id="bustr-set-playstyle">
           <option value="safety">Safety (recommended)</option>
           <option value="maxcount">Max count (aggressive)</option>
+        </select>
+      </div>
+      <div class="bustr-row"><label>Text size ${q('textsize')}</label>
+        <select id="bustr-set-textsize">
+          <option value="normal">Normal</option>
+          <option value="large">Large</option>
+          <option value="xlarge">Extra large</option>
+        </select>
+      </div>
+      <div class="bustr-row"><label>Theme ${q('theme')}</label>
+        <select id="bustr-set-theme">
+          <option value="auto">Auto (match Torn)</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
         </select>
       </div>
       <hr>
@@ -4298,6 +4422,14 @@ body.bustr-compact #bustr-context .bustr-ctx-detail {display: none;}
     byId('bustr-set-scope').addEventListener('change', (e) => {
       updateSetting('activeScope', e.target.value === 'jailOnly' ? 'jailOnly' : 'always');
       applySettings();
+    });
+    byId('bustr-set-textsize').addEventListener('change', (e) => {
+      updateSetting('textSize', ['large', 'xlarge'].includes(e.target.value) ? e.target.value : 'normal');
+      applyAppearance();
+    });
+    byId('bustr-set-theme').addEventListener('change', (e) => {
+      updateSetting('theme', ['light', 'dark'].includes(e.target.value) ? e.target.value : 'auto');
+      applyAppearance();
     });
     byId('bustr-set-badgesimple').addEventListener('change', (e) => {
       updateSetting('navBadgeDetail', e.target.checked ? 'simple' : 'full');

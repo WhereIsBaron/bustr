@@ -41,6 +41,9 @@ WHAT IT DOES
 - On PDA, press and hold the Jail button for a small card with your busts left,
   your penalty % and the BUSTR settings button, so the nav bar stays clear. Off by
   default; switch on "Hold Jail for details" to use it.
+- Text size (Normal / Large / Extra large) and Theme (Auto / Light / Dark)
+  settings under General: bigger, bolder numbers, and a light look for
+  BUSTR's windows that follows Torn's light mode.
 
 
 YOUR PRIVACY AND YOUR ACCOUNT COME FIRST
