@@ -33,7 +33,7 @@ WHAT IT DOES
   shown target - bust picks the highest success %, bail the cheapest. Strictly
   one tap = one request; see the rules note below.
 - A jail-list refresh button that reloads just the captive list in place, with no
-  full page reload.
+  full page reload. Your busts left and penalty % sit right beside it.
 - Puts its settings button in Torn's sidebar right under TornTools, styled to
   look like a native row. An "Active on" setting lets you keep BUSTR everywhere
   or confine it to the jail page only (where it then hides itself completely off
