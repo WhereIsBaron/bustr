@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BUSTR: Jail Bust Assistant + PDA (Baron)
 // @namespace    http://torn.city.com.dot.com.com
-// @version      2.29.6
+// @version      2.29.7
 // @description  Shows your success odds on every jailed target, and how many busts you can make before failure gets likely
 // @updateURL    https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
 // @downloadURL  https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
@@ -63,7 +63,7 @@
   ////////////////////////////////////////////////////////////////////////////
 
   const DEBUG = false; // true re-enables console logs
-  const SCRIPT_VERSION = '2.29.6'; // keep in sync with @version above
+  const SCRIPT_VERSION = '2.29.7'; // keep in sync with @version above
 
   // Penalty model (documented in-game mechanic): each bust adds a penalty decaying
   // hyperbolically as P0/(1+c*t) - half gone at 10h, zero past 72h. PENALTY_PER_BUST
@@ -2171,8 +2171,15 @@ body.bustr-compact #bustr-context .bustr-ctx-detail {display: none;}
 /* Busts left + penalty % in the jail bar (same numbers and colours as the Jail nav badge).
    Busts-left takes the badge's body.bustr--green/orange/red colour; the % keeps its own
    penalty-severity colour from .bustr-pct-line.bustr-pen--*. */
+/* Pinned to the far right with flex order (not DOM order, which a header re-render can shuffle):
+   [BUSTR] [Quick Bust] [?] [Easy Bust] [Easy Bail] [refresh] .... [status] [5 left . 64%].
+   margin-left:auto pushes it right; when the status text is showing, the status takes the auto
+   margin and the counter sits just after it. */
+.bustr-easy-bar .bustr-easy-status {order: 98;}
+.bustr-easy-bar .bustr-easy-status:not(:empty) ~ .bustr-bar-stats {margin-left: 10px;}
 .bustr-easy-bar .bustr-bar-stats {
-  display: inline-flex; align-items: baseline; gap: 6px; margin-left: 8px; white-space: nowrap;
+  order: 99;
+  display: inline-flex; align-items: baseline; gap: 6px; margin-left: auto; white-space: nowrap;
   font-size: calc(13px * var(--bustr-fs, 1)); font-weight: 700; line-height: 1.2;
 }
 .bustr-easy-bar .bustr-bar-busts {color: var(--color, inherit);}
@@ -3523,12 +3530,12 @@ ${darkSurface('#bustr-context .bustr-pct-line.bustr-pen--red')} {color: ${redMel
     // Canonical left-to-right order. The refresh (↻) sits on the right in its long-standing spot,
     // as a wide bordered pill with extra left margin so it is a big, obvious tap target that is
     // hard to confuse with the "?" chip, even on PDA. The "?" stays beside the Quick pill.
-    // [BUSTR] [Quick Bust] [?] [Easy Bust] [Easy Bail] [↻] [1 left . 90%] .... [status]
+    // [BUSTR] [Quick Bust] [?] [Easy Bust] [Easy Bail] [↻] .... [status] [1 left . 90%]
     // Re-applied ONLY when something is out of place (first build, an Easy button toggled, a
     // header re-render). A pass that finds the order intact must not touch the DOM: re-appending
     // the node under the pointer strands Torn's hover pop-up open (it never gets its mouseleave).
     // The check matches exactly the state the appends would produce, so skipping is a no-op.
-    const order = [lbl, pillBust, help, easyBust, easyBail, refresh, barStats, statusEl].filter(Boolean);
+    const order = [lbl, pillBust, help, easyBust, easyBail, refresh, statusEl, barStats].filter(Boolean);
     const inOrder = order.every((el, i) =>
       el.parentNode === bar && el.nextElementSibling === (order[i + 1] || null));
     if (!inOrder) order.forEach((el) => bar.appendChild(el));
