@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BUSTR: Jail Bust Assistant + PDA (Baron)
 // @namespace    http://torn.city.com.dot.com.com
-// @version      2.29.9
+// @version      2.30.0
 // @description  Shows your success odds on every jailed target, and how many busts you can make before failure gets likely
 // @updateURL    https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
 // @downloadURL  https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
@@ -63,7 +63,7 @@
   ////////////////////////////////////////////////////////////////////////////
 
   const DEBUG = false; // true re-enables console logs
-  const SCRIPT_VERSION = '2.29.9'; // keep in sync with @version above
+  const SCRIPT_VERSION = '2.30.0'; // keep in sync with @version above
 
   const PENALTY_PER_BUST = 128;
   const PENALTY_WINDOW_HOURS = 72;
@@ -1851,6 +1851,82 @@ body:not(.dark-mode).bustr--red .bustr-easy-bar .bustr-bar-busts {color: ${LIGHT
 #bustr-settings-panel .bustr-q:hover,
 .bustr-easy-bar .bustr-q:hover {background: #6b7d50;}
 .bustr-easy-bar .bustr-q {margin-left: 0;} /* the bar's flex gap already spaces it */
+/* Bust stats chip: same chip as "?", a small square with a bar-chart glyph. */
+.bustr-easy-bar .bustr-q.bustr-stats-q {border-radius: 3px; width: 16px;}
+.bustr-easy-bar .bustr-stats-q svg {width: 10px; height: 10px; display: block; fill: currentColor;}
+/* Stats card: a compact table, labels muted, numbers bright; the Today column carries a soft
+   tint so the eye lands on it first. */
+/* Normal weight inside the stats card, even with Large/XL text (which bolds the help card):
+   bold everywhere read as a heavy block; only the key rows and the picked day stay bold. */
+#bustr-help #bustr-st-body {font-weight: 400; font-size: calc(11.5px * var(--bustr-fs, 1)); line-height: 1.4;}
+#bustr-help .bustr-st-table {width: 100%; border-collapse: collapse; margin: 0 0 8px; font-variant-numeric: tabular-nums;}
+#bustr-help .bustr-st-table th {text-align: right; font-weight: 600; color: #a0a0a0; padding: 3px 5px 4px;
+  font-size: calc(10px * var(--bustr-fs, 1)); text-transform: uppercase; letter-spacing: 0.03em; border-bottom: 1px solid #4a4a4a;}
+#bustr-help .bustr-st-table td {text-align: right; padding: 3px 5px; color: #f0f0f0; font-weight: 400; border-bottom: 1px solid #3a3a3a;}
+#bustr-help .bustr-st-table th:first-child, #bustr-help .bustr-st-table td:first-child {text-align: left; padding-left: 0; color: #bdbdbd;
+  font-weight: 400; text-transform: none; letter-spacing: 0;}
+#bustr-help .bustr-st-table .bustr-st-today {background: rgba(140,160,90,0.12);}
+#bustr-help .bustr-st-table tr.bustr-st-key td {font-weight: 700;}
+#bustr-help .bustr-st-table tr.bustr-st-key td:first-child {color: #dcdcdc;}
+#bustr-help .bustr-st-table tr.bustr-st-sub td:first-child {padding-left: 10px; font-size: calc(10px * var(--bustr-fs, 1));}
+#bustr-help .bustr-st-table tr.bustr-st-gap td {border-top: 1px solid #555;}
+#bustr-help .bustr-st-table tr:last-child td {border-bottom: 0;}
+#bustr-help .bustr-st-table td.bustr-st-dim {color: #7c7c7c; font-weight: 400;}
+#bustr-help .bustr-st-good {color: #8fd14f;}
+#bustr-help .bustr-st-bad {color: #ef8a78;}
+#bustr-help .bustr-st-facts {display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; padding: 6px 0; border-top: 1px solid #4a4a4a;}
+#bustr-help .bustr-st-facts > span:nth-child(odd) {color: #bdbdbd;}
+#bustr-help .bustr-st-facts > span:nth-child(even) {color: #f0f0f0; font-weight: 600;}
+#bustr-help .bustr-st-facts > span.bustr-st-good {color: #8fd14f;}
+#bustr-help .bustr-st-facts > span.bustr-st-bad {color: #ef8a78;}
+#bustr-help .bustr-st-link {color: #e6c34a; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 2px;}
+/* The explanation sits behind a small "?" at the card's foot (hidden until tapped). */
+#bustr-help .bustr-st-help-row {display: flex; justify-content: flex-end; padding-top: 2px;}
+#bustr-help .bustr-st-qbtn {display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%;
+  background: #4b5738; color: #fff; font-size: calc(10px * var(--bustr-fs, 1)); font-weight: 700; cursor: pointer; user-select: none;}
+#bustr-help .bustr-st-qbtn:hover {background: #6b7d50;}
+#bustr-help .bustr-st-qbtn.bustr-st-qbtn-on {background: #8ca05a; color: #1a1a1a;}
+#bustr-help .bustr-st-note {margin-top: 4px; color: #a0a0a0; font-size: calc(10px * var(--bustr-fs, 1)); padding-top: 6px; border-top: 1px solid #3a3a3a;}
+/* Two-column stats card when stacked would be taller than the screen (big text, short screen). */
+/* body-prefixed so it outranks the Large/XL "centre the help card" width rules. */
+body #bustr-help.bustr-st-card.bustr-st-wide {width: calc(500px * var(--bustr-fs, 1)); max-width: calc(100vw - 16px);}
+#bustr-help.bustr-st-wide .bustr-st-cols {display: grid; grid-template-columns: 1fr 1.15fr; gap: 14px; align-items: start;}
+#bustr-help .bustr-cal-few i {color: #a0a0a0;}
+/* Stats card: dragged by its title bar. */
+#bustr-help.bustr-st-card h4 {cursor: move; touch-action: none; user-select: none;}
+#bustr-help.bustr-st-dragging {opacity: 0.94;}
+/* Its "?" explanation: a small card of its own beside the stats card (placed in JS). */
+#bustr-st-explain {position: fixed; z-index: 100002; width: calc(220px * var(--bustr-fs, 1)); max-height: calc(100vh - 16px); overflow-y: auto;
+  background: #333; color: #ddd; border: 1px solid #111; border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,0.7);
+  padding: 0 12px 10px; font-size: calc(11px * var(--bustr-fs, 1)); line-height: 1.45; font-weight: 400;}
+#bustr-st-explain h4 {margin: 0 -12px 4px; padding: 10px 12px 6px; font-size: calc(11px * var(--bustr-fs, 1)); color: #8ca05a;
+  text-transform: uppercase; letter-spacing: 0.03em; display: flex; justify-content: space-between; align-items: center;}
+#bustr-st-explain .bustr-help-close {cursor: pointer; color: #999; font-size: calc(20px * var(--bustr-fs, 1)); line-height: 1; padding: 0 4px; margin: -4px -4px -4px 8px;}
+#bustr-st-explain .bustr-help-close:hover {color: #fff;}
+#bustr-st-explain p {margin: 0 0 6px; color: #d6d6d6;}
+#bustr-st-explain b {color: #f0f0f0;}
+/* Stats card calendar: Monday-first month grid; busted days show their count, tinted by
+   whether that day beat the odds. */
+#bustr-help .bustr-cal {margin: 0 0 8px;}
+#bustr-help .bustr-cal-head {display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;}
+#bustr-help .bustr-cal-title {font-weight: 700; color: #e8e8e8;}
+#bustr-help .bustr-cal-nav {cursor: pointer; padding: 0 8px; font-size: calc(16px * var(--bustr-fs, 1)); line-height: 1; color: #bbb; border-radius: 4px; user-select: none;}
+#bustr-help .bustr-cal-nav:hover {background: #444; color: #fff;}
+#bustr-help .bustr-cal-nav.bustr-cal-off {opacity: 0.25; cursor: default; background: none;}
+#bustr-help .bustr-cal-grid {display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px;}
+#bustr-help .bustr-cal-dow {text-align: center; color: #7a7a7a; font-size: calc(9px * var(--bustr-fs, 1)); font-weight: 700;}
+#bustr-help .bustr-cal-day {position: relative; text-align: center; padding: 3px 0 2px; border-radius: 4px; cursor: pointer;
+  color: #dedede; line-height: 1.1; font-variant-numeric: tabular-nums; border: 1px solid transparent; user-select: none;}
+#bustr-help .bustr-cal-day:hover {background: #444;}
+#bustr-help .bustr-cal-day i {display: block; font-style: normal; font-size: calc(8px * var(--bustr-fs, 1)); font-weight: 700;}
+#bustr-help .bustr-cal-good {background: rgba(143,209,79,0.16);}
+#bustr-help .bustr-cal-good i {color: #8fd14f;}
+#bustr-help .bustr-cal-bad {background: rgba(239,138,120,0.16);}
+#bustr-help .bustr-cal-bad i {color: #ef8a78;}
+#bustr-help .bustr-cal-today {border-color: #6b7d50;}
+#bustr-help .bustr-cal-sel {border-color: #e6c34a; color: #fff; font-weight: 700;}
+#bustr-help .bustr-cal-future {color: #5e5e5e; cursor: default;}
+#bustr-help .bustr-cal-future:hover {background: none;}
 /* Chips beside a button, never inside one - a nested chip fires the button when tapped. */
 #bustr-settings-panel .bustr-btn-row {display: flex; align-items: center; gap: 7px;}
 #bustr-settings-panel .bustr-btn-row .bustr-btn {flex: 1;}
@@ -1976,6 +2052,37 @@ ${lightSurface('#bustr-settings-panel hr')} {border-top-color: #d4d4cc;}
 ${lightSurface('.bustr-apierror')} {background: rgba(198, 40, 40, 0.1); color: ${LIGHT_RED};}
 ${lightSurface('#bustr-help')} {background: #fbfbf8; color: #222; border-color: #b9b9b0; box-shadow: 0 8px 28px rgba(0,0,0,0.35);}
 ${lightSurface('#bustr-help h4')} {background: #fbfbf8; color: #48601c;}
+${lightSurface('#bustr-help .bustr-st-table th')} {color: #6a6a62; border-bottom-color: #c9c9c0;}
+${lightSurface('#bustr-help .bustr-st-table td')} {color: #1a1a1a; border-bottom-color: #e6e6df;}
+${lightSurface('#bustr-help .bustr-st-table td:first-child')}, ${lightSurface('#bustr-help .bustr-st-facts > span:nth-child(odd)')} {color: #5a5a54;}
+${lightSurface('#bustr-help .bustr-st-table tr.bustr-st-key td:first-child')}, ${lightSurface('#bustr-help .bustr-st-facts > span:nth-child(even)')} {color: #1a1a1a;}
+${lightSurface('#bustr-help .bustr-st-table .bustr-st-today')} {background: rgba(90,120,30,0.09);}
+${lightSurface('#bustr-help .bustr-st-table tr.bustr-st-gap td')}, ${lightSurface('#bustr-help .bustr-st-facts')} {border-top-color: #c9c9c0;}
+${lightSurface('#bustr-help .bustr-st-table td.bustr-st-dim')} {color: #a5a59c;}
+${lightSurface('#bustr-help .bustr-st-good')} {color: ${LIGHT_GREEN};}
+${lightSurface('#bustr-help .bustr-st-bad')} {color: ${LIGHT_RED};}
+${lightSurface('#bustr-help .bustr-st-facts > span.bustr-st-good')} {color: ${LIGHT_GREEN};}
+${lightSurface('#bustr-help .bustr-st-facts > span.bustr-st-bad')} {color: ${LIGHT_RED};}
+${lightSurface('#bustr-help .bustr-st-note')} {color: #6a6a62; border-top-color: #e6e6df;}
+${lightSurface('#bustr-help .bustr-cal-title')} {color: #1a1a1a;}
+${lightSurface('#bustr-help .bustr-st-link')} {color: #8a6a00;}
+${lightSurface('#bustr-st-explain')} {background: #fbfbf8; color: #222; border-color: #b9b9b0; box-shadow: 0 8px 28px rgba(0,0,0,0.35);}
+${lightSurface('#bustr-st-explain h4')} {color: #48601c;}
+${lightSurface('#bustr-st-explain p')} {color: #333;}
+${lightSurface('#bustr-st-explain b')} {color: #000;}
+${lightSurface('#bustr-st-explain .bustr-help-close')} {color: #555;}
+${lightSurface('#bustr-help .bustr-cal-nav')} {color: #555;}
+${lightSurface('#bustr-help .bustr-cal-nav:hover')}, ${lightSurface('#bustr-help .bustr-cal-day:hover')} {background: #e8e8e0; color: #000;}
+${lightSurface('#bustr-help .bustr-cal-dow')} {color: #8a8a82;}
+${lightSurface('#bustr-help .bustr-cal-day')} {color: #333;}
+${lightSurface('#bustr-help .bustr-cal-good')} {background: rgba(63,107,0,0.12);}
+${lightSurface('#bustr-help .bustr-cal-good i')} {color: ${LIGHT_GREEN};}
+${lightSurface('#bustr-help .bustr-cal-bad')} {background: rgba(198,40,40,0.10);}
+${lightSurface('#bustr-help .bustr-cal-bad i')} {color: ${LIGHT_RED};}
+${lightSurface('#bustr-help .bustr-cal-today')} {border-color: #8ca05a;}
+${lightSurface('#bustr-help .bustr-cal-sel')} {border-color: #b08a12; color: #000;}
+${lightSurface('#bustr-help .bustr-cal-future')} {color: #c0c0b8;}
+${lightSurface('#bustr-help .bustr-cal-few i')} {color: #77776f;}
 ${lightSurface('.bustr-consent-card')} {background: #f6f6f2; color: #222; border-color: #b9b9b0; box-shadow: 0 10px 32px rgba(0,0,0,0.35);}
 ${lightSurface('.bustr-consent-card h3')} {color: #48601c;}
 /* PDA hold card: light card, darker severity tints so the numbers stay readable on it. */
@@ -2798,7 +2905,7 @@ ${darkSurface('#bustr-context .bustr-pct-line.bustr-pen--red')} {color: ${redMel
     };
     const pillBust = quickPill('quickBust', 'Quick Bust');
 
-    let help = bar.querySelector('.bustr-q');
+    let help = bar.querySelector('.bustr-q:not(.bustr-stats-q)');
     if (!help) {
       help = document.createElement('span');
       help.className = 'bustr-q';
@@ -2809,6 +2916,20 @@ ${darkSurface('#bustr-context .bustr-pct-line.bustr-pen--red')} {color: ${redMel
         showHelp('quickactions', help);
       });
       bar.appendChild(help);
+    }
+
+    let statsChip = bar.querySelector('.bustr-stats-q');
+    if (!statsChip) {
+      statsChip = document.createElement('span');
+      statsChip.className = 'bustr-q bustr-stats-q';
+      statsChip.setAttribute('role', 'button');
+      statsChip.setAttribute('aria-label', 'Your bust stats');
+      statsChip.innerHTML = '<svg viewBox="0 0 10 10" aria-hidden="true"><rect x="0" y="6" width="2.4" height="4"/><rect x="3.8" y="3" width="2.4" height="7"/><rect x="7.6" y="0" width="2.4" height="10"/></svg>';
+      statsChip.addEventListener('click', () => {
+        ensureSettingsPanelDom();
+        showBustStats(statsChip);
+      });
+      bar.appendChild(statsChip);
     }
 
     let statusEl = bar.querySelector('.bustr-easy-status');
@@ -2860,7 +2981,7 @@ ${darkSurface('#bustr-context .bustr-pct-line.bustr-pen--red')} {color: ${redMel
     const easyBust = easyBtn('bust', 'Easy Bust', us.easyBust === true);
     const easyBail = easyBtn('bail', 'Easy Bail', us.easyBail === true);
 
-    const order = [lbl, pillBust, help, easyBust, easyBail, refresh, statusEl, barStats].filter(Boolean);
+    const order = [lbl, pillBust, help, statsChip, easyBust, easyBail, refresh, statusEl, barStats].filter(Boolean);
     const inOrder = order.every((el, i) =>
       el.parentNode === bar && el.nextElementSibling === (order[i + 1] || null));
     if (!inOrder) order.forEach((el) => bar.appendChild(el));
@@ -2882,6 +3003,7 @@ ${darkSurface('#bustr-context .bustr-pct-line.bustr-pen--red')} {color: ${redMel
     cl.toggle('bustr-fs-xl', us.textSize === 'xlarge');
     cl.toggle('bustr-theme-light', us.theme === 'light');
     cl.toggle('bustr-theme-dark', us.theme === 'dark');
+    if (typeof fitStatsCard === 'function') fitStatsCard(); // open stats card follows a text-size change
   }
 
   function applyJailVisibility() {
@@ -3131,6 +3253,299 @@ ${darkSurface('#bustr-context .bustr-pct-line.bustr-pen--red')} {color: ${redMel
     } catch (e) { console.error('[BUSTR] history render failed', e); }
   }
 
+  function bustStatsFor(entries) {
+    const n = entries.length;
+    const wins = entries.filter((o) => o.success).length;
+    const jailed = entries.filter((o) => !o.success && o.jailed).length;
+    const preds = entries.filter((o) => typeof o.pred === 'number');
+    const avgPred = preds.length ? preds.reduce((s, o) => s + o.pred, 0) / preds.length : null;
+    const predRate = preds.length ? (preds.filter((o) => o.success).length / preds.length) * 100 : null;
+    const landedH = entries.filter((o) => o.success && typeof o.h === 'number').map((o) => o.h);
+    return {
+      n, wins, fails: n - wins, jailed,
+      rate: n ? (wins / n) * 100 : null,
+      avgPred,
+      luck: predRate == null ? null : predRate - avgPred,
+      hardest: landedH.length ? Math.max.apply(null, landedH) : null,
+    };
+  }
+  function fmtAgo(ms) {
+    const m = Math.floor(ms / 60000);
+    if (m < 1) return 'just now';
+    if (m < 60) return m + ' min ago';
+    const h = Math.floor(m / 60);
+    if (h < 24) return h + ' h ' + (m % 60) + ' min ago';
+    const d = Math.floor(h / 24);
+    return d + ' day' + (d === 1 ? '' : 's') + ' ago';
+  }
+  const statsView = { y: 0, m: 0, day: 0, help: false };
+  function dayStartOf(ts) { const d = new Date(ts); return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime(); }
+  const MON_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const MON_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+  const STATS_MIN_DAY = 3;
+  function bustStatsCalendarHtml(all) {
+    const { y, m } = statsView;
+    const first = new Date(y, m, 1);
+    const daysIn = new Date(y, m + 1, 0).getDate();
+    const lead = (first.getDay() + 6) % 7; // Monday-first grid
+    const monthStart = first.getTime();
+    const monthEnd = new Date(y, m + 1, 1).getTime();
+    const byDay = {};
+    all.forEach((o) => {
+      if (o.ts < monthStart || o.ts >= monthEnd) return;
+      const k = new Date(o.ts).getDate();
+      (byDay[k] = byDay[k] || []).push(o);
+    });
+    const today = dayStartOf(Date.now());
+    const now = new Date();
+    const earliest = all.length ? new Date(all[0].ts) : now;
+    const canPrev = y > earliest.getFullYear() || (y === earliest.getFullYear() && m > earliest.getMonth());
+    const canNext = y < now.getFullYear() || (y === now.getFullYear() && m < now.getMonth());
+    let html = '<div class="bustr-cal">'
+      + '<div class="bustr-cal-head">'
+      + '<span class="bustr-cal-nav' + (canPrev ? '' : ' bustr-cal-off') + '" data-st-nav="-1" role="button" aria-label="Previous month">&lsaquo;</span>'
+      + '<span class="bustr-cal-title">' + MON_LONG[m] + ' ' + y + '</span>'
+      + '<span class="bustr-cal-nav' + (canNext ? '' : ' bustr-cal-off') + '" data-st-nav="1" role="button" aria-label="Next month">&rsaquo;</span>'
+      + '</div><div class="bustr-cal-grid">';
+    ['M', 'T', 'W', 'T', 'F', 'S', 'S'].forEach((d) => { html += '<span class="bustr-cal-dow">' + d + '</span>'; });
+    for (let i = 0; i < lead; i++) html += '<span></span>';
+    for (let d = 1; d <= daysIn; d++) {
+      const ts = new Date(y, m, d).getTime();
+      const list = byDay[d] || [];
+      const cls = ['bustr-cal-day'];
+      if (ts > today) cls.push('bustr-cal-future');
+      if (ts === today) cls.push('bustr-cal-today');
+      if (ts === statsView.day) cls.push('bustr-cal-sel');
+      let count = '';
+      if (list.length) {
+        const s = bustStatsFor(list);
+        if (list.length >= STATS_MIN_DAY && s.luck != null) cls.push(s.luck < 0 ? 'bustr-cal-bad' : 'bustr-cal-good');
+        else cls.push('bustr-cal-few');
+        count = '<i>' + list.length + '</i>';
+      }
+      html += '<span class="' + cls.join(' ') + '"' + (ts > today ? '' : ' data-st-day="' + ts + '" role="button"')
+        + '>' + d + count + '</span>';
+    }
+    return html + '</div></div>';
+  }
+
+  function bustStatsHtml() {
+    mergeStoredOutcomeLog(); // include busts logged in your other Torn tabs
+    const all = (getGlobalBustrState().outcomeLog || [])
+      .filter((o) => o && typeof o.ts === 'number')
+      .sort((a, b) => a.ts - b.ts);
+    if (!all.length) {
+      return 'No busts logged yet. BUSTR records each bust you make while it is running, '
+        + 'then shows your numbers here.';
+    }
+    const dayStart = statsView.day;
+    const dayEnd = new Date(new Date(dayStart).getFullYear(), new Date(dayStart).getMonth(), new Date(dayStart).getDate() + 1).getTime();
+    const isToday = dayStart === dayStartOf(Date.now());
+    const dd = new Date(dayStart);
+    const dayLabel = isToday ? 'Today' : dd.getDate() + ' ' + MON_SHORT[dd.getMonth()];
+    const dayList = all.filter((o) => o.ts >= dayStart && o.ts < dayEnd);
+    const tn = new Date();
+    const weekStart = new Date(tn.getFullYear(), tn.getMonth(), tn.getDate() - 6).getTime();
+    const cols = [
+      [dayLabel, bustStatsFor(dayList)],
+      ['7 days', bustStatsFor(all.filter((o) => o.ts >= weekStart))],
+      ['All', bustStatsFor(all)],
+    ];
+    const dash = '-';
+    const pct = (v) => (v == null ? dash : Math.round(v) + '%');
+    const luck = (s) => {
+      if (s.luck == null) return dash;
+      const d = Math.round(s.luck);
+      const cls = d > 0 ? 'bustr-st-good' : (d < 0 ? 'bustr-st-bad' : '');
+      return '<span class="' + cls + '">' + (d > 0 ? '+' : '') + d + ' pts</span>';
+    };
+    const rows = [
+      ['Busts', (s) => s.n, 'bustr-st-key'],
+      ['Landed', (s) => s.wins, ''],
+      ['Failed', (s) => s.fails, ''],
+      ['of which jailed', (s) => s.jailed, 'bustr-st-sub'],
+      ['Success rate', (s) => pct(s.rate), 'bustr-st-key bustr-st-gap'],
+      ['Avg odds taken', (s) => pct(s.avgPred), ''],
+      ['vs the odds', luck, ''],
+      ['Hardest landed', (s) => (s.hardest == null ? dash : 'H' + s.hardest), ''],
+    ];
+    const cell = (v, i) => {
+      const dim = v === 0 || v === dash;
+      const cls = [i === 0 ? 'bustr-st-today' : '', dim ? 'bustr-st-dim' : ''].filter(Boolean).join(' ');
+      return '<td' + (cls ? ' class="' + cls + '"' : '') + '>' + v + '</td>';
+    };
+    let html = '<div class="bustr-st-cols"><div class="bustr-st-col">' + bustStatsCalendarHtml(all) + '</div><div class="bustr-st-col">';
+    html += '<table class="bustr-st-table"><tr><th></th>'
+      + cols.map((c, i) => '<th' + (i === 0 ? ' class="bustr-st-today"' : '') + '>' + c[0] + '</th>').join('') + '</tr>';
+    rows.forEach((r) => {
+      html += '<tr' + (r[2] ? ' class="' + r[2] + '"' : '') + '><td>' + r[0] + '</td>'
+        + cols.map((c, i) => cell(r[1](c[1]), i)).join('') + '</tr>';
+    });
+    html += '</table>';
+
+    let cur = 0, best = 0, bestTs = 0;
+    all.forEach((o) => {
+      if (o.success) { cur++; if (cur > best) { best = cur; bestTs = o.ts; } }
+      else if (o.jailed) cur = 0;
+    });
+    const landedByDay = {};
+    all.forEach((o) => { if (o.success) { const k = dayStartOf(o.ts); landedByDay[k] = (landedByDay[k] || 0) + 1; } });
+    let bestDay = 0, bestDayN = 0;
+    Object.keys(landedByDay).forEach((k) => {
+      if (landedByDay[k] > bestDayN || (landedByDay[k] === bestDayN && Number(k) > bestDay)) { bestDayN = landedByDay[k]; bestDay = Number(k); }
+    });
+    const fmtDay = (ts) => { const d = new Date(ts); return d.getDate() + ' ' + MON_SHORT[d.getMonth()] + (d.getFullYear() === new Date().getFullYear() ? '' : ' ' + d.getFullYear()); };
+    const dayLink = (ts, text) => '<span class="bustr-st-link" data-st-day="' + dayStartOf(ts) + '" data-st-goto="1" role="button">' + text + '</span>';
+    html += '<div class="bustr-st-facts">'
+      + '<span>Current streak</span><span class="' + (cur ? 'bustr-st-good' : '') + '">' + cur + ' landed, no arrest</span>'
+      + '<span>Best streak</span><span>' + (best ? best + ' landed - ' + dayLink(bestTs, fmtDay(bestTs)) : '-') + '</span>'
+      + '<span>Best day</span><span>' + (bestDayN ? bestDayN + ' landed - ' + dayLink(bestDay, fmtDay(bestDay)) : '-') + '</span>'
+      + '<span>Last bust</span><span>' + fmtAgo(Date.now() - all[all.length - 1].ts) + '</span>'
+      + '</div>';
+    html += '<div class="bustr-st-help-row"><span class="bustr-st-qbtn' + (statsView.help ? ' bustr-st-qbtn-on' : '') + '" data-st-help="1" role="button" aria-label="What do these mean?">?</span></div>';
+    return html + '</div></div>';
+  }
+
+  function rerenderBustStats() {
+    const body = document.getElementById('bustr-st-body');
+    if (body) body.innerHTML = bustStatsHtml();
+    fitStatsCard();
+    syncStatsExplain();
+  }
+
+  const STATS_EXPLAIN_HTML = '<p>Tap a day to see it. Green days beat the odds, red days fell short. Days with fewer than ' + STATS_MIN_DAY + ' busts stay grey - too few to call.</p>'
+    + '<p><b>Streak</b> - landed busts until you get jailed. A fail that does not jail you does not break it.</p>'
+    + '<p><b>Best day</b> - the day with the most landed busts.</p>'
+    + '<p><b>vs the odds</b> - your success rate minus the average odds BUSTR showed, both over the busts that had odds shown.</p>'
+    + '<p><b>7 days</b> - today and the 6 days before it. Days run midnight to midnight on your device clock.</p>'
+    + '<p>Counts busts BUSTR logged on this device (or synced), up to the last ' + OUTCOME_LOG_MAX + '. '
+    + 'Full list: Settings - Bust history.</p>'
+    + '<p>Drag the stats card by its title to move it.</p>';
+  function syncStatsExplain() {
+    let ex = document.getElementById('bustr-st-explain');
+    const card = document.getElementById('bustr-help');
+    const want = statsView.help && card && card.classList.contains('bustr-open') && card.classList.contains('bustr-st-card');
+    if (!want) { if (ex) ex.remove(); return; }
+    if (!ex) {
+      ex = document.createElement('div');
+      ex.id = 'bustr-st-explain';
+      ex.innerHTML = '<h4>About these numbers<span class="bustr-help-close" role="button" aria-label="Close">&times;</span></h4>' + STATS_EXPLAIN_HTML;
+      ex.querySelector('.bustr-help-close').addEventListener('click', () => { statsView.help = false; rerenderBustStats(); });
+      document.body.appendChild(ex);
+    }
+    placeStatsExplain();
+  }
+  function placeStatsExplain() {
+    const ex = document.getElementById('bustr-st-explain');
+    const card = document.getElementById('bustr-help');
+    if (!ex || !card) return;
+    const r = card.getBoundingClientRect();
+    const w = ex.offsetWidth, h = ex.offsetHeight, vw = window.innerWidth, vh = window.innerHeight;
+    let left;
+    if (r.right + 10 + w <= vw - 8) left = r.right + 10;
+    else if (r.left - 10 - w >= 8) left = r.left - 10 - w;
+    else left = Math.max(8, (vw - w) / 2); // phone: no room either side, sit on top of the card
+    const top = Math.max(8, Math.min(r.top, vh - h - 8));
+    ex.style.left = Math.round(left) + 'px';
+    ex.style.top = Math.round(top) + 'px';
+  }
+
+  function placeStatsCard(card, left, top) {
+    const w = card.offsetWidth, h = card.offsetHeight, vw = window.innerWidth, vh = window.innerHeight;
+    const l = Math.max(8, Math.min(left, vw - w - 8));
+    const t = Math.max(8, Math.min(top, vh - h - 8));
+    card.style.left = Math.round(l) + 'px';
+    card.style.top = Math.round(t) + 'px';
+    return { left: l, top: t };
+  }
+
+  const STATS_POS_KEY = 'bustrStatsCardPos';
+  function makeStatsCardDraggable(card) {
+    const head = card.querySelector('h4');
+    if (!head) return;
+    head.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || (e.target.closest && e.target.closest('.bustr-help-close'))) return;
+      const r = card.getBoundingClientRect();
+      const dx = e.clientX - r.left, dy = e.clientY - r.top;
+      card.style.transform = 'none';
+      placeStatsCard(card, r.left, r.top);
+      try { head.setPointerCapture(e.pointerId); } catch (err) { /* moves still arrive while over the head */ }
+      card.classList.add('bustr-st-dragging');
+      const move = (ev) => { placeStatsCard(card, ev.clientX - dx, ev.clientY - dy); placeStatsExplain(); };
+      const up = () => {
+        head.removeEventListener('pointermove', move);
+        head.removeEventListener('pointerup', up);
+        head.removeEventListener('pointercancel', up);
+        card.classList.remove('bustr-st-dragging');
+        const cr = card.getBoundingClientRect();
+        try { Store.set(STATS_POS_KEY, { left: Math.round(cr.left), top: Math.round(cr.top) }); } catch (err) { /* position is a convenience only */ }
+      };
+      head.addEventListener('pointermove', move);
+      head.addEventListener('pointerup', up);
+      head.addEventListener('pointercancel', up);
+      e.preventDefault();
+    });
+  }
+
+  function fitStatsCard() {
+    const card = document.getElementById('bustr-help');
+    if (!card || !card.classList.contains('bustr-open') || !card.classList.contains('bustr-st-card')) return;
+    const maxH = window.innerHeight - 16;
+    card.classList.remove('bustr-st-wide');
+    if (card.scrollHeight > maxH) {
+      const fs = parseFloat(getComputedStyle(document.body).getPropertyValue('--bustr-fs')) || 1;
+      if (window.innerWidth - 16 >= 500 * fs) card.classList.add('bustr-st-wide');
+    }
+    const r = card.getBoundingClientRect();
+    if (getComputedStyle(card).transform !== 'none' && !card.style.left) return; // centred by CSS (phone)
+    placeStatsCard(card, r.left, r.top);
+    placeStatsExplain();
+  }
+  let statsResizeHooked = false;
+
+  function showBustStats(chipEl) {
+    try {
+      const now = new Date();
+      statsView.y = now.getFullYear(); statsView.m = now.getMonth(); statsView.day = dayStartOf(now.getTime()); statsView.help = false;
+      showCard('Your bust stats', '<div id="bustr-st-body">' + bustStatsHtml() + '</div>', chipEl);
+      const card = document.getElementById('bustr-help');
+      if (!card || !card.classList.contains('bustr-open')) return;
+      card.classList.add('bustr-st-card');
+      const body = document.getElementById('bustr-st-body');
+      if (body) {
+        body.addEventListener('click', (e) => {
+          const t = e.target.closest ? e.target.closest('[data-st-day],[data-st-nav],[data-st-help]') : null;
+          if (!t || t.classList.contains('bustr-cal-off')) return;
+          if (t.dataset.stHelp) {
+            statsView.help = !statsView.help;
+          } else if (t.dataset.stDay) {
+            statsView.day = Number(t.dataset.stDay);
+            const jd = new Date(statsView.day); statsView.y = jd.getFullYear(); statsView.m = jd.getMonth();
+          } else {
+            const d = new Date(statsView.y, statsView.m + Number(t.dataset.stNav), 1);
+            statsView.y = d.getFullYear(); statsView.m = d.getMonth();
+          }
+          rerenderBustStats();
+        });
+      }
+      makeStatsCardDraggable(card);
+      card.style.maxHeight = 'calc(100vh - 16px)';
+      let saved = null;
+      try { saved = Store.get(STATS_POS_KEY); } catch (err) { saved = null; }
+      if (saved && typeof saved.left === 'number' && typeof saved.top === 'number') {
+        card.style.transform = 'none';
+        placeStatsCard(card, saved.left, saved.top);
+      } else if (window.innerWidth > 780) {
+        const r = chipEl.getBoundingClientRect();
+        card.style.transform = 'none';
+        placeStatsCard(card, r.left - 12, r.bottom + 8);
+      }
+      fitStatsCard();
+      if (!statsResizeHooked) { statsResizeHooked = true; window.addEventListener('resize', fitStatsCard); }
+    } catch (e) { console.error('[BUSTR] bust stats failed', e); }
+  }
+
   function populateSettingsPanelInputs() {
     const panel = document.getElementById('bustr-settings-panel');
     if (!panel) return;
@@ -3368,19 +3783,25 @@ ${darkSurface('#bustr-context .bustr-pct-line.bustr-pen--red')} {color: ${redMel
 
   function hideHelp() {
     const card = document.getElementById('bustr-help');
-    if (card) card.classList.remove('bustr-open');
+    if (card) { card.classList.remove('bustr-open', 'bustr-st-card', 'bustr-st-dragging'); card.style.cssText = ''; } // drop the stats card's placement
+    const stEx = document.getElementById('bustr-st-explain');
+    if (stEx) stEx.remove();
     document.querySelectorAll('.bustr-q.bustr-q-on')
       .forEach((el) => el.classList.remove('bustr-q-on'));
   }
 
   function showHelp(key, chipEl) {
-    const card = document.getElementById('bustr-help');
     const entry = HELP[key];
-    if (!card || !entry) return;
+    if (entry) showCard(entry[0], entry[1], chipEl);
+  }
+
+  function showCard(title, bodyHtml, chipEl) {
+    const card = document.getElementById('bustr-help');
+    if (!card) return;
     const alreadyOpen = card.classList.contains('bustr-open') && chipEl.classList.contains('bustr-q-on');
     hideHelp();
     if (alreadyOpen) return;
-    card.innerHTML = `<h4>${entry[0]}<span class="bustr-help-close" id="bustr-help-close">&times;</span></h4><div>${entry[1]}</div>`;
+    card.innerHTML = `<h4>${title}<span class="bustr-help-close" id="bustr-help-close">&times;</span></h4><div>${bodyHtml}</div>`;
     card.classList.add('bustr-open');
     chipEl.classList.add('bustr-q-on');
     const closeEl = document.getElementById('bustr-help-close');

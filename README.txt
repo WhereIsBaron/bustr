@@ -25,6 +25,9 @@ WHAT IT DOES
 - A bust history in Settings: the busts you attempted and the odds BUSTR showed
   you, for today, the last 7 days or all time. Captive names stay on your device
   and are never uploaded.
+- Bust stats on the jail bar: a calendar of your busting - tap any day for its
+  busts, landed, failed, arrests, success rate against the odds BUSTR showed,
+  plus your best streak and best day. Read-only, from your own logged busts.
 - Optional Quick Bust / Quick Bail (off by default): relabels Torn's own
   bust/bail link so your single click skips the "are you sure?" step. Quick Bust
   sits on the jail bar; Quick Bail is switched on in Settings.
