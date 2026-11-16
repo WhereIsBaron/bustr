@@ -39,8 +39,8 @@ WHAT IT DOES
   or confine it to the jail page only (where it then hides itself completely off
   the jail page).
 - On PDA, press and hold the Jail button for a small card with your busts left,
-  your penalty % and the BUSTR settings button, so the nav bar stays clear. On by
-  default; switch off "Hold Jail for details" to keep the nav badge instead.
+  your penalty % and the BUSTR settings button, so the nav bar stays clear. Off by
+  default; switch on "Hold Jail for details" to use it.
 
 
 YOUR PRIVACY AND YOUR ACCOUNT COME FIRST

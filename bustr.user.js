@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BUSTR: Jail Bust Assistant + PDA (Baron)
 // @namespace    http://torn.city.com.dot.com.com
-// @version      2.29.3
+// @version      2.29.4
 // @description  Shows your success odds on every jailed target, and how many busts you can make before failure gets likely
 // @updateURL    https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
 // @downloadURL  https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
@@ -63,7 +63,7 @@
   ////////////////////////////////////////////////////////////////////////////
 
   const DEBUG = false; // true re-enables console logs
-  const SCRIPT_VERSION = '2.29.3'; // keep in sync with @version above
+  const SCRIPT_VERSION = '2.29.4'; // keep in sync with @version above
 
   // Penalty model (documented in-game mechanic): each bust adds a penalty decaying
   // hyperbolically as P0/(1+c*t) - half gone at 10h, zero past 72h. PENALTY_PER_BUST
@@ -377,7 +377,8 @@
         playStyle: 'safety',           // 'safety' | 'maxcount' (display-only thresholds, see PLAYSTYLE_* constants)
         activeScope: 'always',         // 'always' | 'jailOnly' - suppresses nav badge/colours + background fetch off the jail page
         navBadgeDetail: 'simple',      // 'simple' = badge shows only busts-left (default); 'full' = score/threshold : busts + penalty %. Full breakdown always in hover tooltip.
-        pdaHoldDetails: true,          // PDA only: ON = force the compact badge + reveal the full readout on a long-press/right-click of the Jail button (see installPdaHoldPopover); OFF = full readout inline like desktop. No effect off PDA.
+        pdaHoldDetails: false,         // PDA only (default OFF since v2.29.4): ON = force the compact badge + reveal the full readout on a long-press/right-click of the Jail button (see installPdaHoldPopover); OFF = full readout inline like desktop. No effect off PDA.
+        pdaHoldOffDefaultApplied: true, // marks the v2.29.4 pdaHold-off migration ran (see loadGlobalBustrState); new installs start applied so an opt-in isn't re-flipped.
         usePerkCalibration: true,      // ON by default (v2.17.0): scales the success/skill term by detected perks. Self-cal overrides once it has samples; penalty term stays on baseline (see getPenaltySkillCalibration).
         perkCalDefaultApplied: true,   // marks the v2.17.0 perk-cal-default migration ran (see loadGlobalBustrState); new installs start applied so a manual opt-out isn't re-flipped.
         cloudSyncEnabled: false,       // off by default; opt-in cloud backup of outcomeLog, behind a consent prompt (see CloudSync)
@@ -559,6 +560,12 @@
     if (GLOBAL_BUSTR_STATE.userSettings.perkCalDefaultApplied !== true) {
       GLOBAL_BUSTR_STATE.userSettings.usePerkCalibration = true;
       GLOBAL_BUSTR_STATE.userSettings.perkCalDefaultApplied = true;
+    }
+    // Migration: pdaHoldDetails became OFF by default in v2.29.4. Turn it off ONCE for
+    // existing users, flag-tracked so a later opt-in sticks.
+    if (GLOBAL_BUSTR_STATE.userSettings.pdaHoldOffDefaultApplied !== true) {
+      GLOBAL_BUSTR_STATE.userSettings.pdaHoldDetails = false;
+      GLOBAL_BUSTR_STATE.userSettings.pdaHoldOffDefaultApplied = true;
     }
     // Migration: colour bands re-centred in v2.20.0 (see SC_GREEN_AT/SC_RED_BELOW). Move
     // users ONCE, only if still on the old 66/33 defaults; flag-tracked so it never re-runs.
@@ -4016,7 +4023,7 @@ body.bustr-compact #bustr-context .bustr-ctx-detail {display: none;}
     refresh: ['Refresh rate', 'How often the on-screen numbers redraw, in seconds. This does NOT control how often BUSTR calls the Torn API. Those calls are throttled separately: your bust log is fetched at most once every 35 seconds and only while you are on the jail page, and your level/perks at most once a day. Everywhere else the numbers are worked out on your device from the last fetch, with no API call at all, so lowering this costs you nothing in API usage. Minimum 15.'],
     scope: ['Active on', 'Anywhere: the nav badge and colours appear on every Torn page. Jail page only: hides them and pauses background checks everywhere except the jail page. Use it if the badge distracts you while doing other things.'],
     badge: ['Compact nav badge', 'On (default): the Jail nav badge shows how many more busts you can safely make (colour-coded by budget) plus your penalty %, which is coloured by severity - green when low, amber mid, red high, and a heavier red over 100%. Off: it also shows the raw penalty score / threshold prefix. Either way the full breakdown is always available by hovering the badge and in this panel\'s status line, so nothing is lost.'],
-    pdahold: ['Hold Jail for details (PDA)', 'PDA only. On (default): BUSTR leaves the nav bar - no numbers and no BUSTR button there, so it takes none of your nav-bar space. Press and hold the Jail button (or right-click it) to pop up your remaining busts and penalty % (plus the score / threshold when Compact nav badge is off), with the BUSTR button underneath - tap it to open these settings. A normal tap still opens Jail as usual. Off: the badge and the BUSTR button sit in the nav bar as before. Has no effect anywhere except PDA.'],
+    pdahold: ['Hold Jail for details (PDA)', 'PDA only. Off by default. On: BUSTR leaves the nav bar - no numbers and no BUSTR button there, so it takes none of your nav-bar space. Press and hold the Jail button (or right-click it) to pop up your remaining busts and penalty % (plus the score / threshold when Compact nav badge is off), with the BUSTR button underneath - tap it to open these settings. A normal tap still opens Jail as usual. Off (default): the badge and the BUSTR button sit in the nav bar as before. Has no effect anywhere except PDA.'],
     display: ['Jail list display', 'These change only what the jail list shows. The list is always sorted easiest-first, and the hardness score and the odds underneath are always calculated the same way regardless.'],
     hardness: ['Hardness number', 'Shows each prisoner\'s hardness score, which is their level multiplied by their remaining jail time plus three hours. Higher means harder to bust.'],
     quickactions: ['Quick actions', 'Optional. When on, BUSTR relabels Torn\'s own bust/bail link to its no-confirmation variant (the button gets a green highlight) so your single click skips the "are you sure?" step. BUSTR never clicks or busts for you - you still press every button yourself, one click per bust. This is the same mechanism the long-running TornTools extension uses. If you run TornTools, turn its own Quick Bust off to use this - the two act on the same link and conflict. Off by default; leave off if you prefer Torn\'s confirmation.'],
