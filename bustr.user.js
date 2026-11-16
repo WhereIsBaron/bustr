@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BUSTR: Jail Bust Assistant + PDA (Baron)
 // @namespace    http://torn.city.com.dot.com.com
-// @version      2.30.0
+// @version      2.30.1
 // @description  Shows your success odds on every jailed target, and how many busts you can make before failure gets likely
 // @updateURL    https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
 // @downloadURL  https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
@@ -63,7 +63,7 @@
   ////////////////////////////////////////////////////////////////////////////
 
   const DEBUG = false; // true re-enables console logs
-  const SCRIPT_VERSION = '2.30.0'; // keep in sync with @version above
+  const SCRIPT_VERSION = '2.30.1'; // keep in sync with @version above
 
   const PENALTY_PER_BUST = 128;
   const PENALTY_WINDOW_HOURS = 72;
@@ -337,12 +337,48 @@
   function sameLogRows(x, y) {
     return x.length === y.length && x.every((o, i) => o && y[i] && o.ts === y[i].ts);
   }
+  function emptyDayArchive() { return { thru: 0, run: 0, best: 0, bestTs: 0, days: {} }; }
+  function validDayArchive(a) {
+    return !!(a && typeof a.thru === 'number' && a.thru > getLogClearedAt() && a.days && typeof a.days === 'object');
+  }
+  function getDayArchive() {
+    const a = GLOBAL_BUSTR_STATE.dayArchive;
+    return validDayArchive(a) ? a : emptyDayArchive();
+  }
+  function archiveDroppedRows(oldLog, newLog) {
+    try {
+      if (!Array.isArray(oldLog) || !oldLog.length || !Array.isArray(newLog) || !newLog.length) return;
+      const arch = getDayArchive();
+      const cut = newLog[0].ts, clearedAt = getLogClearedAt();
+      const gone = oldLog.filter((o) => isRealOutcome(o) && o.ts < cut && o.ts > arch.thru && o.ts > clearedAt)
+        .sort((x, y) => x.ts - y.ts);
+      if (!gone.length) return;
+      const next = { thru: arch.thru, run: arch.run, best: arch.best, bestTs: arch.bestTs, days: { ...arch.days } };
+      gone.forEach((o) => {
+        const k = String(dayStartOf(o.ts));
+        const d = next.days[k] ? next.days[k].slice() : newDayTotals();
+        addBustToDay(d, o);
+        next.days[k] = d;
+        if (o.success) { next.run++; if (next.run > next.best) { next.best = next.run; next.bestTs = o.ts; } }
+        else if (o.jailed) next.run = 0;
+        next.thru = o.ts;
+      });
+      GLOBAL_BUSTR_STATE = { ...GLOBAL_BUSTR_STATE, dayArchive: next };
+    } catch (err) {
+      console.error('[BUSTR] day archive failed', err);
+    }
+  }
   function mergeStoredOutcomeLog() {
     try {
       const stored = Store.get(STATE_KEY);
       const storedLog = (stored && Array.isArray(stored.outcomeLog)) ? stored.outcomeLog : [];
       const mine = Array.isArray(GLOBAL_BUSTR_STATE.outcomeLog) ? GLOBAL_BUSTR_STATE.outcomeLog : [];
+      const storedArch = stored && stored.dayArchive;
+      if (validDayArchive(storedArch) && storedArch.thru > getDayArchive().thru) {
+        GLOBAL_BUSTR_STATE = { ...GLOBAL_BUSTR_STATE, dayArchive: storedArch };
+      }
       const merged = mergeOutcomeLogs(mine, storedLog, getLogClearedAt());
+      archiveDroppedRows(mine, merged);
       if (!sameLogRows(merged, mine)) {
         GLOBAL_BUSTR_STATE = { ...GLOBAL_BUSTR_STATE, outcomeLog: merged, selfCalFit: computeSelfCalFit(merged) };
       }
@@ -352,7 +388,9 @@
   }
 
   function setGlobalBustrState(newState) {
+    const prevLog = GLOBAL_BUSTR_STATE.outcomeLog;
     GLOBAL_BUSTR_STATE = { ...GLOBAL_BUSTR_STATE, ...newState };
+    archiveDroppedRows(prevLog, GLOBAL_BUSTR_STATE.outcomeLog); // busts the cap pushed out
     mergeStoredOutcomeLog(); // never write back an older log over rows another tab saved
     Store.set(STATE_KEY, GLOBAL_BUSTR_STATE);
   }
@@ -3253,21 +3291,43 @@ ${darkSurface('#bustr-context .bustr-pct-line.bustr-pen--red')} {color: ${redMel
     } catch (e) { console.error('[BUSTR] history render failed', e); }
   }
 
-  function bustStatsFor(entries) {
-    const n = entries.length;
-    const wins = entries.filter((o) => o.success).length;
-    const jailed = entries.filter((o) => !o.success && o.jailed).length;
-    const preds = entries.filter((o) => typeof o.pred === 'number');
-    const avgPred = preds.length ? preds.reduce((s, o) => s + o.pred, 0) / preds.length : null;
-    const predRate = preds.length ? (preds.filter((o) => o.success).length / preds.length) * 100 : null;
-    const landedH = entries.filter((o) => o.success && typeof o.h === 'number').map((o) => o.h);
+  function newDayTotals() { return [0, 0, 0, 0, 0, 0, 0]; }
+  function addBustToDay(d, o) {
+    d[0]++;
+    if (o.success) d[1]++; else if (o.jailed) d[2]++;
+    if (typeof o.pred === 'number') { d[3]++; d[4] += o.pred; if (o.success) d[5]++; }
+    if (o.success && typeof o.h === 'number' && o.h > d[6]) d[6] = o.h;
+  }
+  function addDayToDay(d, x) {
+    for (let i = 0; i < 6; i++) d[i] += x[i];
+    if (x[6] > d[6]) d[6] = x[6];
+  }
+  function bustStatsFor(d) {
+    const n = d[0], wins = d[1];
+    const avgPred = d[3] ? d[4] / d[3] : null;
     return {
-      n, wins, fails: n - wins, jailed,
+      n, wins, fails: n - wins, jailed: d[2],
       rate: n ? (wins / n) * 100 : null,
       avgPred,
-      luck: predRate == null ? null : predRate - avgPred,
-      hardest: landedH.length ? Math.max.apply(null, landedH) : null,
+      luck: d[3] ? (d[5] / d[3]) * 100 - avgPred : null,
+      hardest: d[6] || null,
     };
+  }
+  function statsDayMap() {
+    mergeStoredOutcomeLog(); // include busts logged in your other Torn tabs (and their archive)
+    const arch = getDayArchive();
+    const map = {};
+    Object.keys(arch.days).forEach((k) => { map[k] = arch.days[k].slice(); });
+    const live = (getGlobalBustrState().outcomeLog || [])
+      .filter((o) => o && typeof o.ts === 'number' && o.ts > arch.thru)
+      .sort((a, b) => a.ts - b.ts);
+    live.forEach((o) => { const k = String(dayStartOf(o.ts)); addBustToDay(map[k] = map[k] || newDayTotals(), o); });
+    return { map, arch, live };
+  }
+  function sumDays(map, from, to) {
+    const d = newDayTotals();
+    Object.keys(map).forEach((k) => { const t = Number(k); if (t >= from && t < to) addDayToDay(d, map[k]); });
+    return d;
   }
   function fmtAgo(ms) {
     const m = Math.floor(ms / 60000);
@@ -3284,22 +3344,14 @@ ${darkSurface('#bustr-context .bustr-pct-line.bustr-pen--red')} {color: ${redMel
   const MON_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
   const STATS_MIN_DAY = 3;
-  function bustStatsCalendarHtml(all) {
+  function bustStatsCalendarHtml(map, earliestTs) {
     const { y, m } = statsView;
     const first = new Date(y, m, 1);
     const daysIn = new Date(y, m + 1, 0).getDate();
     const lead = (first.getDay() + 6) % 7; // Monday-first grid
-    const monthStart = first.getTime();
-    const monthEnd = new Date(y, m + 1, 1).getTime();
-    const byDay = {};
-    all.forEach((o) => {
-      if (o.ts < monthStart || o.ts >= monthEnd) return;
-      const k = new Date(o.ts).getDate();
-      (byDay[k] = byDay[k] || []).push(o);
-    });
     const today = dayStartOf(Date.now());
     const now = new Date();
-    const earliest = all.length ? new Date(all[0].ts) : now;
+    const earliest = new Date(earliestTs);
     const canPrev = y > earliest.getFullYear() || (y === earliest.getFullYear() && m > earliest.getMonth());
     const canNext = y < now.getFullYear() || (y === now.getFullYear() && m < now.getMonth());
     let html = '<div class="bustr-cal">'
@@ -3312,17 +3364,17 @@ ${darkSurface('#bustr-context .bustr-pct-line.bustr-pen--red')} {color: ${redMel
     for (let i = 0; i < lead; i++) html += '<span></span>';
     for (let d = 1; d <= daysIn; d++) {
       const ts = new Date(y, m, d).getTime();
-      const list = byDay[d] || [];
+      const tot = map[String(ts)];
       const cls = ['bustr-cal-day'];
       if (ts > today) cls.push('bustr-cal-future');
       if (ts === today) cls.push('bustr-cal-today');
       if (ts === statsView.day) cls.push('bustr-cal-sel');
       let count = '';
-      if (list.length) {
-        const s = bustStatsFor(list);
-        if (list.length >= STATS_MIN_DAY && s.luck != null) cls.push(s.luck < 0 ? 'bustr-cal-bad' : 'bustr-cal-good');
+      if (tot && tot[0]) {
+        const s = bustStatsFor(tot);
+        if (tot[0] >= STATS_MIN_DAY && s.luck != null) cls.push(s.luck < 0 ? 'bustr-cal-bad' : 'bustr-cal-good');
         else cls.push('bustr-cal-few');
-        count = '<i>' + list.length + '</i>';
+        count = '<i>' + tot[0] + '</i>';
       }
       html += '<span class="' + cls.join(' ') + '"' + (ts > today ? '' : ' data-st-day="' + ts + '" role="button"')
         + '>' + d + count + '</span>';
@@ -3331,26 +3383,23 @@ ${darkSurface('#bustr-context .bustr-pct-line.bustr-pen--red')} {color: ${redMel
   }
 
   function bustStatsHtml() {
-    mergeStoredOutcomeLog(); // include busts logged in your other Torn tabs
-    const all = (getGlobalBustrState().outcomeLog || [])
-      .filter((o) => o && typeof o.ts === 'number')
-      .sort((a, b) => a.ts - b.ts);
-    if (!all.length) {
+    const { map, arch, live } = statsDayMap();
+    const keys = Object.keys(map).map(Number).filter((k) => map[k][0] > 0).sort((a, b) => a - b);
+    if (!keys.length) {
       return 'No busts logged yet. BUSTR records each bust you make while it is running, '
         + 'then shows your numbers here.';
     }
     const dayStart = statsView.day;
-    const dayEnd = new Date(new Date(dayStart).getFullYear(), new Date(dayStart).getMonth(), new Date(dayStart).getDate() + 1).getTime();
-    const isToday = dayStart === dayStartOf(Date.now());
     const dd = new Date(dayStart);
+    const dayEnd = new Date(dd.getFullYear(), dd.getMonth(), dd.getDate() + 1).getTime();
+    const isToday = dayStart === dayStartOf(Date.now());
     const dayLabel = isToday ? 'Today' : dd.getDate() + ' ' + MON_SHORT[dd.getMonth()];
-    const dayList = all.filter((o) => o.ts >= dayStart && o.ts < dayEnd);
     const tn = new Date();
     const weekStart = new Date(tn.getFullYear(), tn.getMonth(), tn.getDate() - 6).getTime();
     const cols = [
-      [dayLabel, bustStatsFor(dayList)],
-      ['7 days', bustStatsFor(all.filter((o) => o.ts >= weekStart))],
-      ['All', bustStatsFor(all)],
+      [dayLabel, bustStatsFor(sumDays(map, dayStart, dayEnd))],
+      ['7 days', bustStatsFor(sumDays(map, weekStart, Infinity))],
+      ['All', bustStatsFor(sumDays(map, -Infinity, Infinity))],
     ];
     const dash = '-';
     const pct = (v) => (v == null ? dash : Math.round(v) + '%');
@@ -3375,7 +3424,7 @@ ${darkSurface('#bustr-context .bustr-pct-line.bustr-pen--red')} {color: ${redMel
       const cls = [i === 0 ? 'bustr-st-today' : '', dim ? 'bustr-st-dim' : ''].filter(Boolean).join(' ');
       return '<td' + (cls ? ' class="' + cls + '"' : '') + '>' + v + '</td>';
     };
-    let html = '<div class="bustr-st-cols"><div class="bustr-st-col">' + bustStatsCalendarHtml(all) + '</div><div class="bustr-st-col">';
+    let html = '<div class="bustr-st-cols"><div class="bustr-st-col">' + bustStatsCalendarHtml(map, keys[0]) + '</div><div class="bustr-st-col">';
     html += '<table class="bustr-st-table"><tr><th></th>'
       + cols.map((c, i) => '<th' + (i === 0 ? ' class="bustr-st-today"' : '') + '>' + c[0] + '</th>').join('') + '</tr>';
     rows.forEach((r) => {
@@ -3384,24 +3433,21 @@ ${darkSurface('#bustr-context .bustr-pct-line.bustr-pen--red')} {color: ${redMel
     });
     html += '</table>';
 
-    let cur = 0, best = 0, bestTs = 0;
-    all.forEach((o) => {
+    let cur = arch.run, best = arch.best, bestTs = arch.bestTs;
+    live.forEach((o) => {
       if (o.success) { cur++; if (cur > best) { best = cur; bestTs = o.ts; } }
       else if (o.jailed) cur = 0;
     });
-    const landedByDay = {};
-    all.forEach((o) => { if (o.success) { const k = dayStartOf(o.ts); landedByDay[k] = (landedByDay[k] || 0) + 1; } });
     let bestDay = 0, bestDayN = 0;
-    Object.keys(landedByDay).forEach((k) => {
-      if (landedByDay[k] > bestDayN || (landedByDay[k] === bestDayN && Number(k) > bestDay)) { bestDayN = landedByDay[k]; bestDay = Number(k); }
-    });
+    keys.forEach((k) => { if (map[k][1] && map[k][1] >= bestDayN) { bestDayN = map[k][1]; bestDay = k; } });
+    const lastTs = live.length ? live[live.length - 1].ts : arch.thru;
     const fmtDay = (ts) => { const d = new Date(ts); return d.getDate() + ' ' + MON_SHORT[d.getMonth()] + (d.getFullYear() === new Date().getFullYear() ? '' : ' ' + d.getFullYear()); };
     const dayLink = (ts, text) => '<span class="bustr-st-link" data-st-day="' + dayStartOf(ts) + '" data-st-goto="1" role="button">' + text + '</span>';
     html += '<div class="bustr-st-facts">'
       + '<span>Current streak</span><span class="' + (cur ? 'bustr-st-good' : '') + '">' + cur + ' landed, no arrest</span>'
       + '<span>Best streak</span><span>' + (best ? best + ' landed - ' + dayLink(bestTs, fmtDay(bestTs)) : '-') + '</span>'
       + '<span>Best day</span><span>' + (bestDayN ? bestDayN + ' landed - ' + dayLink(bestDay, fmtDay(bestDay)) : '-') + '</span>'
-      + '<span>Last bust</span><span>' + fmtAgo(Date.now() - all[all.length - 1].ts) + '</span>'
+      + '<span>Last bust</span><span>' + (lastTs ? fmtAgo(Date.now() - lastTs) : '-') + '</span>'
       + '</div>';
     html += '<div class="bustr-st-help-row"><span class="bustr-st-qbtn' + (statsView.help ? ' bustr-st-qbtn-on' : '') + '" data-st-help="1" role="button" aria-label="What do these mean?">?</span></div>';
     return html + '</div></div>';
@@ -3419,8 +3465,9 @@ ${darkSurface('#bustr-context .bustr-pct-line.bustr-pen--red')} {color: ${redMel
     + '<p><b>Best day</b> - the day with the most landed busts.</p>'
     + '<p><b>vs the odds</b> - your success rate minus the average odds BUSTR showed, both over the busts that had odds shown.</p>'
     + '<p><b>7 days</b> - today and the 6 days before it. Days run midnight to midnight on your device clock.</p>'
-    + '<p>Counts busts BUSTR logged on this device (or synced), up to the last ' + OUTCOME_LOG_MAX + '. '
-    + 'Full list: Settings - Bust history.</p>'
+    + '<p>Counts busts BUSTR logged on this device (or synced). Once a bust is older than your last ' + OUTCOME_LOG_MAX + ', '
+    + 'its day is kept as daily totals, so past months stay here for good. '
+    + 'Settings - Bust history lists the last ' + OUTCOME_LOG_MAX + ' one by one.</p>'
     + '<p>Drag the stats card by its title to move it.</p>';
   function syncStatsExplain() {
     let ex = document.getElementById('bustr-st-explain');
