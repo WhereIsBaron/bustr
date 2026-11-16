@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BUSTR: Jail Bust Assistant + PDA (Baron)
 // @namespace    http://torn.city.com.dot.com.com
-// @version      2.29.5
+// @version      2.29.6
 // @description  Shows your success odds on every jailed target, and how many busts you can make before failure gets likely
 // @updateURL    https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
 // @downloadURL  https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
@@ -20,7 +20,7 @@
 // @connect      firestore.googleapis.com
 // ==/UserScript==
 
-// Security/reliability-hardened build. See CHANGELOG.md for version history.
+// Security/reliability-hardened build. Version history: the BUSTR forum thread changelog.
 //
 // ---------------------------------------------------------------------------
 // COMPLIANCE NOTE (read before adding anything new):
@@ -63,7 +63,7 @@
   ////////////////////////////////////////////////////////////////////////////
 
   const DEBUG = false; // true re-enables console logs
-  const SCRIPT_VERSION = '2.29.5'; // keep in sync with @version above
+  const SCRIPT_VERSION = '2.29.6'; // keep in sync with @version above
 
   // Penalty model (documented in-game mechanic): each bust adds a penalty decaying
   // hyperbolically as P0/(1+c*t) - half gone at 10h, zero past 72h. PENALTY_PER_BUST
@@ -2168,6 +2168,20 @@ body.bustr-compact #bustr-context .bustr-ctx-detail {display: none;}
 .dark-mode .bustr-easy-bar .bustr-quick-toggle:not(.bustr-on):hover {color: #c2d69a; border-color: #6f8340;}
 .dark-mode .bustr-easy-status {color: #cfe0a0;}
 
+/* Busts left + penalty % in the jail bar (same numbers and colours as the Jail nav badge).
+   Busts-left takes the badge's body.bustr--green/orange/red colour; the % keeps its own
+   penalty-severity colour from .bustr-pct-line.bustr-pen--*. */
+.bustr-easy-bar .bustr-bar-stats {
+  display: inline-flex; align-items: baseline; gap: 6px; margin-left: 8px; white-space: nowrap;
+  font-size: calc(13px * var(--bustr-fs, 1)); font-weight: 700; line-height: 1.2;
+}
+.bustr-easy-bar .bustr-bar-busts {color: var(--color, inherit);}
+.bustr-easy-bar .bustr-bar-sep {opacity: 0.5; font-weight: 400;}
+.bustr-easy-bar .bustr-bar-stats .bustr-pct-line {display: inline; font-size: 1em; line-height: inherit;}
+body:not(.dark-mode).bustr--green .bustr-easy-bar .bustr-bar-busts {color: ${LIGHT_GREEN};}
+body:not(.dark-mode).bustr--orange .bustr-easy-bar .bustr-bar-busts {color: ${LIGHT_ORANGE};}
+body:not(.dark-mode).bustr--red .bustr-easy-bar .bustr-bar-busts {color: ${LIGHT_RED};}
+
 /* Settings button + panel */
 /* Sidebar entry (primary): a clone of a native #nav-jail row, so text colour/font/weight
    inherit and match sibling rows (findByClassPrefix in the JS swaps only label/icon). The
@@ -3456,6 +3470,19 @@ ${darkSurface('#bustr-context .bustr-pct-line.bustr-pen--red')} {color: ${redMel
       bar.appendChild(statusEl);
     }
 
+    // Busts left + penalty %: the Jail nav badge's numbers, repeated here so they're in view while
+    // busting (no scrolling to the sidebar). Its .bustr-stats__* spans and .bustr-pct-line are
+    // filled and coloured by renderBustrStats every tick, exactly like the badge.
+    let barStats = bar.querySelector('.bustr-bar-stats');
+    const barStatsNew = !barStats;
+    if (!barStats) {
+      barStats = document.createElement('span');
+      barStats.className = 'bustr-stats bustr-bar-stats';
+      barStats.innerHTML = '<span class="bustr-bar-busts"><span class="bustr-stats__availableBusts">-</span> left</span>'
+        + '<span class="bustr-bar-sep">&middot;</span>'
+        + '<span class="bustr-pct-line"><span class="bustr-stats__penaltyPct">-</span>%</span>';
+    }
+
     // Refresh button: always present.
     let refresh = bar.querySelector('.bustr-jail-refresh');
     if (!refresh) {
@@ -3496,15 +3523,16 @@ ${darkSurface('#bustr-context .bustr-pct-line.bustr-pen--red')} {color: ${redMel
     // Canonical left-to-right order. The refresh (↻) sits on the right in its long-standing spot,
     // as a wide bordered pill with extra left margin so it is a big, obvious tap target that is
     // hard to confuse with the "?" chip, even on PDA. The "?" stays beside the Quick pill.
-    // [BUSTR] [Quick Bust] [?] [Easy Bust] [Easy Bail] [↻] .... [status]
+    // [BUSTR] [Quick Bust] [?] [Easy Bust] [Easy Bail] [↻] [1 left . 90%] .... [status]
     // Re-applied ONLY when something is out of place (first build, an Easy button toggled, a
     // header re-render). A pass that finds the order intact must not touch the DOM: re-appending
     // the node under the pointer strands Torn's hover pop-up open (it never gets its mouseleave).
     // The check matches exactly the state the appends would produce, so skipping is a no-op.
-    const order = [lbl, pillBust, help, easyBust, easyBail, refresh, statusEl].filter(Boolean);
+    const order = [lbl, pillBust, help, easyBust, easyBail, refresh, barStats, statusEl].filter(Boolean);
     const inOrder = order.every((el, i) =>
       el.parentNode === bar && el.nextElementSibling === (order[i + 1] || null));
     if (!inOrder) order.forEach((el) => bar.appendChild(el));
+    if (barStatsNew) recalcPenaltyScoreOnly(); // fill it now rather than on the next tick
   }
 
   // Compact vs full nav badge, toggled by a single body class (the badge exists on
