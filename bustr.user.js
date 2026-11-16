@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BUSTR: Jail Bust Assistant + PDA (Baron)
 // @namespace    http://torn.city.com.dot.com.com
-// @version      2.29.7
+// @version      2.29.8
 // @description  Shows your success odds on every jailed target, and how many busts you can make before failure gets likely
 // @updateURL    https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
 // @downloadURL  https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
@@ -63,7 +63,7 @@
   ////////////////////////////////////////////////////////////////////////////
 
   const DEBUG = false; // true re-enables console logs
-  const SCRIPT_VERSION = '2.29.7'; // keep in sync with @version above
+  const SCRIPT_VERSION = '2.29.8'; // keep in sync with @version above
 
   // Penalty model (documented in-game mechanic): each bust adds a penalty decaying
   // hyperbolically as P0/(1+c*t) - half gone at 10h, zero past 72h. PENALTY_PER_BUST
@@ -4166,8 +4166,8 @@ ${darkSurface('#bustr-context .bustr-pct-line.bustr-pen--red')} {color: ${redMel
     refresh: ['Refresh rate', 'How often the on-screen numbers redraw, in seconds. This does NOT control how often BUSTR calls the Torn API. Those calls are throttled separately: your bust log is fetched at most once every 35 seconds and only while you are on the jail page, and your level/perks at most once a day. Everywhere else the numbers are worked out on your device from the last fetch, with no API call at all, so lowering this costs you nothing in API usage. Minimum 15.'],
     scope: ['Active on', 'Anywhere: the nav badge and colours appear on every Torn page. Jail page only: hides them and pauses background checks everywhere except the jail page. Use it if the badge distracts you while doing other things.'],
     badge: ['Compact nav badge', 'On (default): the Jail nav badge shows how many more busts you can safely make (colour-coded by budget) plus your penalty %, which is coloured by severity - green when low, amber mid, red high, and a heavier red over 100%. Off: it also shows the raw penalty score / threshold prefix. Either way the full breakdown is always available by hovering the badge and in this panel\'s status line, so nothing is lost.'],
-    textsize: ['Text size', 'Makes all of BUSTR’s text bigger: the success % and hardness number on the jail page, the Jail nav badge, and these settings. Large is 1.25x, Extra large 1.5x, and both also make the numbers bold. Normal (default) is the standard size. On PDA the small badge in the nav bar grows a little less, so it still fits its slot.'],
-    theme: ['Theme', 'Light or dark look for BUSTR’s own windows: these settings, the help card, and the PDA hold card. Auto (default) follows Torn - light when you use Torn’s light mode, dark in dark mode. Light and Dark keep that look whatever Torn uses. The colours on the jail page itself always follow Torn.'],
+    textsize: ['Text size', 'Makes all of BUSTR\'s text bigger: the success % and hardness number on the jail page, the Jail nav badge, and these settings. Large is 1.25x, Extra large 1.5x, and both also make the numbers bold. Normal (default) is the standard size. On PDA the small badge in the nav bar grows a little less, so it still fits its slot.'],
+    theme: ['Theme', 'Light or dark look for BUSTR\'s own windows: these settings, the help card, and the PDA hold card. Auto (default) follows Torn - light when you use Torn\'s light mode, dark in dark mode. Light and Dark keep that look whatever Torn uses. The colours on the jail page itself always follow Torn.'],
     pdahold: ['Hold Jail for details (PDA)', 'PDA only. Off by default. On: BUSTR leaves the nav bar - no numbers and no BUSTR button there, so it takes none of your nav-bar space. Press and hold the Jail button (or right-click it) to pop up your remaining busts and penalty % (plus the score / threshold when Compact nav badge is off), with the BUSTR button underneath - tap it to open these settings. A normal tap still opens Jail as usual. Off (default): the badge and the BUSTR button sit in the nav bar as before. Has no effect anywhere except PDA.'],
     display: ['Jail list display', 'These change only what the jail list shows. The list is always sorted easiest-first, and the hardness score and the odds underneath are always calculated the same way regardless.'],
     hardness: ['Hardness number', 'Shows each prisoner\'s hardness score, which is their level multiplied by their remaining jail time plus three hours. Higher means harder to bust.'],
