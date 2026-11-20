@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BUSTR: Jail Bust Assistant + PDA (Baron)
 // @namespace    http://torn.city.com.dot.com.com
-// @version      2.30.1
+// @version      2.30.2
 // @description  Shows your success odds on every jailed target, and how many busts you can make before failure gets likely
 // @updateURL    https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
 // @downloadURL  https://raw.githubusercontent.com/WhereIsBaron/bustr/release/bustr.user.js
@@ -63,7 +63,7 @@
   ////////////////////////////////////////////////////////////////////////////
 
   const DEBUG = false; // true re-enables console logs
-  const SCRIPT_VERSION = '2.30.1'; // keep in sync with @version above
+  const SCRIPT_VERSION = '2.30.2'; // keep in sync with @version above
 
   const PENALTY_PER_BUST = 128;
   const PENALTY_WINDOW_HOURS = 72;
@@ -97,6 +97,13 @@
 
   const SUCCESS_LIFT_K = 36;        // points of lift per 1.0 of cal above the pivot (18 -> 24 v2.24.0 -> 36 v2.26.0)
   const SUCCESS_LIFT_PIVOT = 0.85;  // no-lift point; matches CAL_NO_PERKS
+
+  const ODDS_MODEL = 'bendy';         // 'bendy' (lab3), 'logistic' (lab1) or 'linear' (shipped v2.30.1)
+  const BENDY_W = [3.6635, -0.2098, -1.0055, -1.7896, -6.8128, -3.5211, -0.9519, 3.3284, 3.0749];
+  const LOGIT_W0 = 2.8596;
+  const LOGIT_W_HARD = -0.9196;       // per ln(hardness / skill)
+  const LOGIT_W_PEN = -3.4447;        // per 100% of (saturated) penalty
+  const LOGIT_W_CAL = 2.4724;         // per 1.0 of cal above SUCCESS_LIFT_PIVOT
 
   const OUTCOME_LOG_MAX = 500;           // cap on stored attempts (oldest dropped). A count
   const SELF_CAL_FLOOR = 0.45;          // fitted-cal clamp floor (was 0.3, then 0.6; 0.45 v2.24.0)
@@ -228,6 +235,7 @@
         quickBail: false,          // opt-in: same for the bail link (buy -> buy1)
         easyBust: false,           // opt-in (consent-gated): header button, 1 tap = 1 bust request for the best shown target. See COMPLIANCE NOTE.
         easyBail: false,           // opt-in (consent-gated): same, bails the cheapest shown inmate.
+        easyBailMaxCost: 0,        // $ cap for Easy Bail (0 = no cap): targets estimated above it are skipped
         easyActionsConsented: false, // true once the Easy actions consent prompt is accepted (covers both)
         showSuccessChance: SHOW_SUCCESS_CHANCE, // per-target % visible
         skillCalibrationOverride: SKILL_CALIBRATION_OVERRIDE, // null = auto from perks
@@ -351,6 +359,7 @@
       const arch = getDayArchive();
       const cut = newLog[0].ts, clearedAt = getLogClearedAt();
       const gone = oldLog.filter((o) => isRealOutcome(o) && o.ts < cut && o.ts > arch.thru && o.ts > clearedAt)
+        .concat(apiFillRows(oldLog, Math.max(arch.thru, clearedAt), cut))
         .sort((x, y) => x.ts - y.ts);
       if (!gone.length) return;
       const next = { thru: arch.thru, run: arch.run, best: arch.best, bestTs: arch.bestTs, days: { ...arch.days } };
@@ -367,6 +376,50 @@
     } catch (err) {
       console.error('[BUSTR] day archive failed', err);
     }
+  }
+
+  const API_BUSTS_KEY = 'bustr_api_busts';
+  const API_BUSTS_MAX = 2000;
+  const API_MATCH_MS = 120000; // a logged landed bust within 2 min of a Torn log entry is the same bust
+  function getApiBusts() {
+    const a = Store.get(API_BUSTS_KEY);
+    return Array.isArray(a) ? a.filter((t) => typeof t === 'number' && t > 0) : [];
+  }
+  function recordApiBusts(data) {
+    try {
+      if (!data || !data.log || typeof data.log !== 'object') return;
+      const clearedAt = getLogClearedAt();
+      const set = new Set(getApiBusts());
+      const before = set.size;
+      Object.keys(data.log).forEach((k) => {
+        const s = Number(data.log[k] && data.log[k].timestamp);
+        if (Number.isFinite(s) && s > 0 && s * 1000 > clearedAt) set.add(s * 1000);
+      });
+      if (set.size === before) return;
+      const out = [...set].filter((t) => t > clearedAt).sort((x, y) => x - y);
+      while (out.length > API_BUSTS_MAX) out.shift();
+      Store.set(API_BUSTS_KEY, out);
+    } catch (err) {
+      console.error('[BUSTR] Torn bust log store failed', err);
+    }
+  }
+  function apiFillRows(rows, from, to) {
+    const api = getApiBusts().filter((t) => t > from && t < to);
+    if (!api.length) return [];
+    const won = (rows || []).filter((o) => isRealOutcome(o) && o.success).map((o) => o.ts).sort((x, y) => x - y);
+    const used = new Uint8Array(won.length);
+    const out = [];
+    let lo = 0;
+    api.forEach((t) => {
+      while (lo < won.length && won[lo] < t - API_MATCH_MS) lo++;
+      let best = -1;
+      for (let i = lo; i < won.length && won[i] <= t + API_MATCH_MS; i++) {
+        if (!used[i] && (best < 0 || Math.abs(won[i] - t) < Math.abs(won[best] - t))) best = i;
+      }
+      if (best >= 0) used[best] = 1;
+      else out.push({ ts: t, success: true, api: true });
+    });
+    return out;
   }
   function mergeStoredOutcomeLog() {
     try {
@@ -641,6 +694,22 @@
 
   function calcSuccessChanceRaw(hardness, penaltyPct, calibration) {
     const skill = getPlayerLevel() * calibration;
+    if (ODDS_MODEL === 'bendy') {
+      const w = BENDY_W;
+      const hx = Math.log(Math.max(hardness, 1) / skill);
+      const p = Math.max(0, penaltyPct) / 100;
+      const x = w[0] + w[1] * hx + w[2] * Math.max(0, hx) + w[3] * Math.max(0, hx - 1.5)
+        + w[4] * Math.max(0, hx - 3) + w[5] * p + w[6] * Math.max(0, p - 0.5)
+        + w[7] * Math.max(0, p - 1) + w[8] * (calibration - SUCCESS_LIFT_PIVOT);
+      return Math.max(1, Math.min(99, 100 / (1 + Math.exp(-x))));
+    }
+    if (ODDS_MODEL === 'logistic') {
+      const x = LOGIT_W0
+        + LOGIT_W_HARD * Math.log(Math.max(hardness, 1) / skill)
+        + LOGIT_W_PEN * Math.min(penaltyPct, PENALTY_SATURATION_PCT) / 100
+        + LOGIT_W_CAL * (calibration - SUCCESS_LIFT_PIVOT);
+      return Math.max(1, Math.min(99, 100 / (1 + Math.exp(-x))));
+    }
     const effectivePenalty = PENALTY_WEIGHT * Math.min(penaltyPct, PENALTY_SATURATION_PCT);
     const raw = SUCCESS_A - (SUCCESS_B * 60 / skill) * hardness - effectivePenalty;
     const clamped = Math.max(1, Math.min(100, raw));
@@ -875,7 +944,7 @@
       fatalKeyError, // true once Torn rejected the key (code 2/16) and auto-refresh was paused
       apiKey: describeApiKey(), // SOURCE and LENGTH only - never the key itself (see describeApiKey)
       modelConstants: {
-        SUCCESS_A, SUCCESS_B,
+        SUCCESS_A, SUCCESS_B, ODDS_MODEL, BENDY_W, LOGIT_W0, LOGIT_W_HARD, LOGIT_W_PEN, LOGIT_W_CAL,
         PENALTY_PER_BUST, PENALTY_WINDOW_HOURS, PENALTY_DECAY_C, PENALTY_PCT_ANCHOR, RECENT_HISTORY_WINDOW_DAYS,
         CAL_CEILING, CAL_FLOOR, CAL_NO_PERKS, FULL_BUST_SKILL_BONUS,
         PENALTY_WEIGHT, PENALTY_SATURATION_PCT, PRED_SHRINK_K, PRED_SHRINK_CENTER, OUTCOME_MODEL_VERSION,
@@ -2460,6 +2529,7 @@ ${darkSurface('#bustr-context .bustr-pct-line.bustr-pen--red')} {color: ${redMel
       const data = await fetchBustsData(apiKey);
       setGlobalBustrState({ lastApiError: null }); // last call succeeded: clear any recorded failure
       setTimestampsArray(createTimestampsArray(data));
+      recordApiBusts(data); // stats card: fill in landed busts BUSTR did not see
 
       const statsObj = calcBustrStats(getTimestampsArray());
       setPenaltyScore(statsObj.penaltyScore);
@@ -2728,7 +2798,59 @@ ${darkSurface('#bustr-context .bustr-pct-line.bustr-pen--red')} {color: ${redMel
       li, href, id, name: jailRowName(li),
       success: Number.isFinite(success) ? success : null,
       hardness: Number.isFinite(hardness) ? hardness : null,
+      bailEst: bailCostEstimate(li),
     };
+  }
+
+  const BAIL_BASE_PER = 100;          // $ per captive level per minute (unverified starting point)
+  const BAIL_RATIO_KEY = 'bustrBailRatios';
+  const BAIL_RATIO_KEEP = 20;
+  function bailRatios() {
+    let r = null;
+    try { r = Store.get(BAIL_RATIO_KEY); } catch (e) { r = null; }
+    return Array.isArray(r) ? r.filter((x) => typeof x === 'number' && x > 0) : [];
+  }
+  function bailMultiplier() {
+    const r = bailRatios().slice().sort((a, b) => a - b);
+    if (r.length === 0) return 1;
+    const mid = r.length >> 1;
+    const med = r.length % 2 ? r[mid] : (r[mid - 1] + r[mid]) / 2;
+    return Math.max(0.2, Math.min(2, med));
+  }
+  function bailBase(li) {
+    const info = li ? getLevelJailDurationInfo(li) : null;
+    if (!info) return null;
+    const [level, hours] = info;
+    const minutes = Math.round(hours * 60);
+    return BAIL_BASE_PER * level * (minutes + 1);
+  }
+  function bailCostEstimate(li) {
+    const base = bailBase(li);
+    return base == null ? null : Math.round(base * bailMultiplier());
+  }
+  function learnBailPrice(li, data) {
+    const base = bailBase(li);
+    const raw = (data && (data.msg || data.text)) || '';
+    const m = String(raw).replace(/<[^>]*>/g, ' ').match(/\$\s?(\d[\d,]*)/);
+    if (!base || !m) return null;
+    const paid = parseInt(m[1].replace(/,/g, ''), 10);
+    if (!(paid > 0)) return null;
+    const list = bailRatios();
+    list.push(paid / base);
+    try { Store.set(BAIL_RATIO_KEY, list.slice(-BAIL_RATIO_KEEP)); } catch (e) { /* learning is a convenience */ }
+    return paid;
+  }
+  function parseMoneyInput(v) {
+    const m = String(v || '').trim().toLowerCase().replace(/[$,\s]/g, '').match(/^(\d+(?:\.\d+)?)([kmb]?)$/);
+    if (!m) return 0;
+    const mult = m[2] === 'k' ? 1e3 : m[2] === 'm' ? 1e6 : m[2] === 'b' ? 1e9 : 1;
+    return Math.round(parseFloat(m[1]) * mult);
+  }
+  function fmtMoneyShort(n) {
+    if (n >= 1e9) return '$' + +(n / 1e9).toFixed(1) + 'b';
+    if (n >= 1e6) return '$' + +(n / 1e6).toFixed(1) + 'm';
+    if (n >= 1e3) return '$' + Math.round(n / 1e3) + 'k';
+    return '$' + n;
   }
 
   function pickEasyTarget(kind) {
@@ -2747,6 +2869,7 @@ ${darkSurface('#bustr-context .bustr-pct-line.bustr-pen--red')} {color: ${redMel
       easyRetryId = null; // remembered captive is no longer in jail: advance normally
     }
 
+    const cap = kind === 'bail' ? (getUserSettings().easyBailMaxCost || 0) : 0;
     let best = null;
     for (const li of rows) {
       if (li.classList.contains('bustr-easy-done')) continue;
@@ -2756,6 +2879,7 @@ ${darkSurface('#bustr-context .bustr-pct-line.bustr-pen--red')} {color: ${redMel
       const idMatch = href.match(/XID=(\d+)/);
       if (!idMatch) continue;
       const t = easyTargetFromRow(li, href, idMatch[1]);
+      if (cap > 0 && (t.bailEst == null || t.bailEst > cap)) continue;
       t.rank = kind === 'bust'
         ? (Number.isFinite(t.success) ? t.success : -1)
         : (Number.isFinite(t.hardness) ? -t.hardness : -Infinity);
@@ -2830,7 +2954,11 @@ ${darkSurface('#bustr-context .bustr-pct-line.bustr-pen--red')} {color: ${redMel
       if (nerve !== null && nerve < bustNerveCost()) { if (statusEl) statusEl.textContent = NO_NERVE_MSG; return; }
     }
     const target = pickEasyTarget(kind);
-    if (!target) { if (statusEl) statusEl.textContent = 'No eligible targets'; return; }
+    if (!target) {
+      const cap = getUserSettings().easyBailMaxCost || 0;
+      if (statusEl) statusEl.textContent = (kind === 'bail' && cap > 0) ? 'No one under your ' + fmtMoneyShort(cap) + ' bail cap' : 'No eligible targets';
+      return;
+    }
 
     const noConfirmHref = kind === 'bust'
       ? target.href.replace(/step=breakout\b/, 'step=breakout1')
@@ -2884,9 +3012,12 @@ ${darkSurface('#bustr-context .bustr-pct-line.bustr-pen--red')} {color: ${redMel
         }
         scheduleGroundTruthResync(); // correct the budget from the real bust log shortly after
       }
+      let paid = null;
+      if (kind === 'bail' && outcome.success) paid = learnBailPrice(target.li, data);
 
       if (finishedWithTarget) target.li.classList.add('bustr-easy-done');
-      if (statusEl) statusEl.textContent = easyStatusMessage(kind, outcome, data, name, !finishedWithTarget);
+      if (statusEl) statusEl.textContent = easyStatusMessage(kind, outcome, data, name, !finishedWithTarget)
+        + (paid ? ' (' + fmtMoneyShort(paid) + ')' : '');
     } catch (err) {
       console.error('[BUSTR] Easy action request failed', err);
       if (statusEl) statusEl.textContent = 'Request failed';
@@ -3231,7 +3362,17 @@ ${darkSurface('#bustr-context .bustr-pct-line.bustr-pen--red')} {color: ${redMel
     }
     const perkCal = calibrationFromPerks(bustPerks);
     const level = getPlayerLevel();
-    const hMid = Math.round(((SUCCESS_A - 50) * level) / (SUCCESS_B * 60));
+    let hMid;
+    if (ODDS_MODEL === 'linear') {
+      hMid = Math.round(((SUCCESS_A - 50) * level) / (SUCCESS_B * 60));
+    } else {
+      let lo = Math.log(3 * level), hi = Math.log(level * 1e4);
+      for (let i = 0; i < 40; i++) {
+        const mid = (lo + hi) / 2;
+        if (calcSuccessChanceRaw(Math.exp(mid), 0, CAL_NO_PERKS) > 50) lo = mid; else hi = mid;
+      }
+      hMid = Math.round(Math.exp((lo + hi) / 2));
+    }
     const baseline = Math.round(calcSuccessChanceRaw(hMid, 0, CAL_CEILING));
     const withPerks = Math.round(calcSuccessChanceRaw(hMid, 0, perkCal));
     const delta = withPerks - baseline;
@@ -3318,8 +3459,11 @@ ${darkSurface('#bustr-context .bustr-pct-line.bustr-pen--red')} {color: ${redMel
     const arch = getDayArchive();
     const map = {};
     Object.keys(arch.days).forEach((k) => { map[k] = arch.days[k].slice(); });
-    const live = (getGlobalBustrState().outcomeLog || [])
+    const log = getGlobalBustrState().outcomeLog || [];
+    const filled = apiFillRows(log, Math.max(arch.thru, getLogClearedAt()), Infinity);
+    const live = log
       .filter((o) => o && typeof o.ts === 'number' && o.ts > arch.thru)
+      .concat(filled)
       .sort((a, b) => a.ts - b.ts);
     live.forEach((o) => { const k = String(dayStartOf(o.ts)); addBustToDay(map[k] = map[k] || newDayTotals(), o); });
     return { map, arch, live };
@@ -3441,6 +3585,7 @@ ${darkSurface('#bustr-context .bustr-pct-line.bustr-pen--red')} {color: ${redMel
     let bestDay = 0, bestDayN = 0;
     keys.forEach((k) => { if (map[k][1] && map[k][1] >= bestDayN) { bestDayN = map[k][1]; bestDay = k; } });
     const lastTs = live.length ? live[live.length - 1].ts : arch.thru;
+    const nFilled = live.filter((o) => o.api).length; // landed busts taken from Torn's log
     const fmtDay = (ts) => { const d = new Date(ts); return d.getDate() + ' ' + MON_SHORT[d.getMonth()] + (d.getFullYear() === new Date().getFullYear() ? '' : ' ' + d.getFullYear()); };
     const dayLink = (ts, text) => '<span class="bustr-st-link" data-st-day="' + dayStartOf(ts) + '" data-st-goto="1" role="button">' + text + '</span>';
     html += '<div class="bustr-st-facts">'
@@ -3448,6 +3593,7 @@ ${darkSurface('#bustr-context .bustr-pct-line.bustr-pen--red')} {color: ${redMel
       + '<span>Best streak</span><span>' + (best ? best + ' landed - ' + dayLink(bestTs, fmtDay(bestTs)) : '-') + '</span>'
       + '<span>Best day</span><span>' + (bestDayN ? bestDayN + ' landed - ' + dayLink(bestDay, fmtDay(bestDay)) : '-') + '</span>'
       + '<span>Last bust</span><span>' + (lastTs ? fmtAgo(Date.now() - lastTs) : '-') + '</span>'
+      + (nFilled ? '<span>From Torn log</span><span>' + nFilled + ' landed, no odds</span>' : '')
       + '</div>';
     html += '<div class="bustr-st-help-row"><span class="bustr-st-qbtn' + (statsView.help ? ' bustr-st-qbtn-on' : '') + '" data-st-help="1" role="button" aria-label="What do these mean?">?</span></div>';
     return html + '</div></div>';
@@ -3465,7 +3611,9 @@ ${darkSurface('#bustr-context .bustr-pct-line.bustr-pen--red')} {color: ${redMel
     + '<p><b>Best day</b> - the day with the most landed busts.</p>'
     + '<p><b>vs the odds</b> - your success rate minus the average odds BUSTR showed, both over the busts that had odds shown.</p>'
     + '<p><b>7 days</b> - today and the 6 days before it. Days run midnight to midnight on your device clock.</p>'
-    + '<p>Counts busts BUSTR logged on this device (or synced). Once a bust is older than your last ' + OUTCOME_LOG_MAX + ', '
+    + '<p>Counts busts BUSTR logged on this device (or synced), plus landed busts from Torn\'s own bust log that BUSTR did not see '
+    + '(another device or another script). Those count as landed with no odds, so they stay out of the odds rows. '
+    + 'Torn\'s log has no failed busts, so fails made elsewhere are not counted.</p><p>Once a bust is older than your last ' + OUTCOME_LOG_MAX + ', '
     + 'its day is kept as daily totals, so past months stay here for good. '
     + 'Settings - Bust history lists the last ' + OUTCOME_LOG_MAX + ' one by one.</p>'
     + '<p>Drag the stats card by its title to move it.</p>';
@@ -3604,6 +3752,7 @@ ${darkSurface('#bustr-context .bustr-pct-line.bustr-pen--red')} {color: ${redMel
     byId('bustr-set-quickbail').checked = us.quickBail === true;
     byId('bustr-set-easybust').checked = us.easyBust === true;
     byId('bustr-set-easybail').checked = us.easyBail === true;
+    byId('bustr-set-bailcap').value = us.easyBailMaxCost > 0 ? fmtMoneyShort(us.easyBailMaxCost) : '0';
     byId('bustr-set-success').checked = us.showSuccessChance !== false;
     byId('bustr-set-scgreen').value = typeof us.successGreenAt === 'number' ? us.successGreenAt : SC_GREEN_AT;
     byId('bustr-set-scred').value = typeof us.successRedBelow === 'number' ? us.successRedBelow : SC_RED_BELOW;
@@ -3628,7 +3777,8 @@ ${darkSurface('#bustr-context .bustr-pct-line.bustr-pen--red')} {color: ${redMel
     const sec = document.getElementById('bustr-debug-export-section');
     if (!sec) return;
     const syncActive = hasGMXhr && CloudSync.enabled() && CloudSync.signedIn();
-    sec.style.display = syncActive ? 'none' : '';
+    const isTestBuild = /-lab/.test(SCRIPT_VERSION);
+    sec.style.display = syncActive && !isTestBuild ? 'none' : '';
   }
 
   function refreshCloudStatus(msg) {
@@ -3938,6 +4088,7 @@ ${darkSurface('#bustr-context .bustr-pct-line.bustr-pen--red')} {color: ${redMel
       <div class="bustr-row"><label>Quick bail (you click, no confirm) ${q('quickactions')}</label><input type="checkbox" id="bustr-set-quickbail"></div>
       <div class="bustr-row"><label>Easy bust (BUSTR fires it) ${q('easyactions')}</label><input type="checkbox" id="bustr-set-easybust"></div>
       <div class="bustr-row"><label>Easy bail (BUSTR fires it)</label><input type="checkbox" id="bustr-set-easybail"></div>
+      <div class="bustr-row"><label>Easy bail max cost <span class="bustr-default">(e.g. 500k, 0 = no limit)</span></label><input type="text" id="bustr-set-bailcap" inputmode="decimal" size="8"></div>
       <div class="bustr-row"><label>Show success % ${q('success')}</label><input type="checkbox" id="bustr-set-success"></div>
       <div class="bustr-row"><label>Success green at % <span class="bustr-default">(default ${SC_GREEN_AT})</span> ${q('sccolour')}</label><input type="number" id="bustr-set-scgreen" min="0" max="100"></div>
       <div class="bustr-row"><label>Success red below % <span class="bustr-default">(default ${SC_RED_BELOW})</span></label><input type="number" id="bustr-set-scred" min="0" max="100"></div>
@@ -4056,6 +4207,11 @@ ${darkSurface('#bustr-context .bustr-pct-line.bustr-pen--red')} {color: ${redMel
     byId('bustr-set-quickbail').addEventListener('change', (e) => { updateSetting('quickBail', e.target.checked); applyQuickActions(); });
     byId('bustr-set-easybust').addEventListener('change', (e) => { handleEasyToggle('easyBust', e.target); });
     byId('bustr-set-easybail').addEventListener('change', (e) => { handleEasyToggle('easyBail', e.target); });
+    byId('bustr-set-bailcap').addEventListener('change', (e) => {
+      const v = parseMoneyInput(e.target.value);
+      updateSetting('easyBailMaxCost', v);
+      e.target.value = v > 0 ? fmtMoneyShort(v) : '0';
+    });
     byId('bustr-set-success').addEventListener('change', (e) => { updateSetting('showSuccessChance', e.target.checked); applySettings(); });
     byId('bustr-set-scgreen').addEventListener('change', (e) => { updateSetting('successGreenAt', clampPct(numOr(e.target, SC_GREEN_AT))); applySettings(); });
     byId('bustr-set-scred').addEventListener('change', (e) => { updateSetting('successRedBelow', clampPct(numOr(e.target, SC_RED_BELOW))); applySettings(); });

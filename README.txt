@@ -129,11 +129,10 @@ and has grown well past a simple bugfix branch. Alongside their hardness score a
 penalty budget tracker, it adds a full per-target success prediction, built from
 the community Advanced Jail Bust Guide and then fitted and cross-validated against
 real logged bust outcomes: penalty is weighted at the strength the data actually
-shows, and the displayed odds are calibrated so they mean what they say. For most
-players the odds top out at 67% to 72%, depending on perks, because in the real
-outcome data even the best-looking targets fail about a third of the time - an
-honest 67% beats a flattering 100%. Only proven strong busters read higher, once
-their own logged results show it. Add adaptive calibration that keeps learning
+shows, and the displayed odds are calibrated so they mean what they say. Easy
+targets read in the 90s, and the odds drop away fast on targets far harder than
+you, because in the real outcome data almost nothing lands past about 12 times
+your skill. Add adaptive calibration that keeps learning
 from your own results, perk-aware calibration, a proper in-page settings panel,
 and a dedicated nav button with your live numbers on both desktop and PDA. In
 short, this one also tells you your odds, not just your hardness and budget
